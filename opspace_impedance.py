@@ -2,6 +2,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
+import pinocchio as pino
 
 # Cartesian impedance control gains.
 impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
@@ -36,8 +37,9 @@ def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
 
     # Load the model and data.
-    model = mujoco.MjModel.from_xml_path("kuka_iiwa_14/scene.xml")
-    data = mujoco.MjData(model)
+    xml_path = "kuka_iiwa_14/scene.xml"
+    model = mujoco.MjModel.from_xml_path(f"{xml_path}")
+    data = mujoco.MjData(model)  
 
     model.opt.timestep = dt
 
@@ -117,7 +119,7 @@ def main() -> None:
 
             # Jacobian.
             mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
-
+            
             # Compute the joint-space inertia matrix.
             mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
             M = np.zeros((model.nv, model.nv))
