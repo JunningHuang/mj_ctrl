@@ -2,7 +2,6 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
-import pinocchio as pino
 
 # Cartesian impedance control gains.
 impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
