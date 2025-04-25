@@ -32,6 +32,8 @@ gravity_compensation: bool = True
 # Simulation timestep in seconds.
 dt: float = 0.002
 
+# With external force compensation or not
+external_force_compensation: bool = False
 
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
@@ -132,11 +134,25 @@ def main() -> None:
             else:
                 Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
 
+            # Retrieve the end effector external force
+            ee_body_name = "attachment"
+            ee_body_id = model.body(ee_body_name).id
+            f_ext = data.xfrc_applied[ee_body_id]
+
             # Compute the control law
             jac_inv = np.linalg.pinv(jac, rcond=1e-2)
+            # The control law without the external force adjustment part
             y = jac_inv @ Md_inv @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids]))
+            
+            if external_force_compensation:
+                # The external force adjustment part
+                y += jac_inv @ Md_inv @ (-f_ext)
+            
             tau = M @ y
             
+            if external_force_compensation:
+                tau += jac.T @ f_ext
+                        
             # Add gravity compensation.
             if gravity_compensation:
                 tau += data.qfrc_bias[dof_ids]
