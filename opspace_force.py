@@ -31,12 +31,11 @@ gravity_compensation: bool = True
 # Simulation timestep in seconds.
 dt: float = 0.002
 
-
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
 
     # Load the model and data.
-    model = mujoco.MjModel.from_xml_path("kuka_iiwa_14/scene.xml")
+    model = mujoco.MjModel.from_xml_path("kuka_iiwa_14/scene_notarget.xml")
     data = mujoco.MjData(model)
 
     model.opt.timestep = dt
@@ -73,8 +72,8 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     # Mocap body we will control with our mouse.
-    mocap_name = "target"
-    mocap_id = model.body(mocap_name).mocapid[0]
+    target_pos = np.array([0.5, 0., 0.459])  # Note that the height of the table is 0.45m
+    target_quat = np.array([0., 1., 0., 0.])
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -84,12 +83,22 @@ def main() -> None:
     error_quat = np.zeros(4)
     M_inv = np.zeros((model.nv, model.nv))
     Mx = np.zeros((6, 6))
+    
+    # Settings for visualization.
+    transparent = True
+    if transparent:
+        # Set transparency for all geometries
+        for i in range(model.ngeom):
+            model.geom_rgba[i, 3] = 0.5  # Set alpha (transparency) to 50%
+
+    # Visualize contact forces.
+    contact_forces = []
 
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
-        show_left_ui=False,
-        show_right_ui=False,
+        # show_left_ui=False,
+        # show_right_ui=False,
     ) as viewer:
         # Reset the simulation.
         mujoco.mj_resetDataKeyframe(model, data, key_id)
@@ -97,18 +106,17 @@ def main() -> None:
         # Reset the free camera.
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
 
-        # Enable site frame visualization.
-        viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
+        # # Enable site frame visualization.
+        # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
             step_start = time.time()
 
             # Spatial velocity (aka twist).
-            dx = data.mocap_pos[mocap_id] - data.site(site_id).xpos
+            dx = target_pos - data.site(site_id).xpos
             twist[:3] = Kpos * dx / integration_dt
             mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
             mujoco.mju_negQuat(site_quat_conj, site_quat)
-            mujoco.mju_mulQuat(error_quat, data.mocap_quat[mocap_id], site_quat_conj)
-            
+            mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
             mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
             twist[3:] *= Kori / integration_dt
 
@@ -135,6 +143,24 @@ def main() -> None:
             if gravity_compensation:
                 tau += data.qfrc_bias[dof_ids]
 
+            # # Print out the position of the table.
+            # table_geom_id = model.geom("board").id
+            # table_xpos = data.geom_xpos[table_geom_id]  
+            # print(f"Table position: {table_xpos}")
+            
+            # Print out the geoms that are making contact.
+            if data.ncon > 0:
+                for i in range(data.ncon):
+                    contact = data.contact[i]
+                    geom1 = model.geom(contact.geom1)
+                    geom2 = model.geom(contact.geom2)
+                    print(f"Contact between {geom1.name} and {geom2.name}")
+                    contact_force = np.zeros(6)
+                    mujoco.mj_contactForce(model, data, i, contact_force)
+            else:
+                contact_force = np.zeros(6)
+            contact_forces.append(contact_force)
+
             # Set the control signal and step the simulation.
             np.clip(tau, *model.actuator_ctrlrange.T, out=tau)
             data.ctrl[actuator_ids] = tau[actuator_ids]
@@ -144,7 +170,14 @@ def main() -> None:
             time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
-
+        
+    import matplotlib.pyplot as plt
+    contact_forces = np.array(contact_forces)
+    plt.plot(np.arange(len(contact_forces)) * dt, contact_forces[:, :3])
+    plt.title("Contact Forces Over Time")
+    plt.xlabel("Time Step")
+    plt.legend(["Fx", "Fy", "Fz"])
+    plt.show()
 
 if __name__ == "__main__":
     main()
