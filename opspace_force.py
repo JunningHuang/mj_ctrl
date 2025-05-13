@@ -72,7 +72,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     # Mocap body we will control with our mouse.
-    target_pos = np.array([0.5, 0., 0.459])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
 
     # Pre-allocate numpy arrays.
@@ -91,8 +91,23 @@ def main() -> None:
         for i in range(model.ngeom):
             model.geom_rgba[i, 3] = 0.5  # Set alpha (transparency) to 50%
 
+    # Settings for the contact solver.
+    model.opt.cone = 0
+
     # Visualize contact forces.
     contact_forces = []
+
+    # Parameters for the force feedback controller.
+    force_feedback = True
+    Kp_force = 0.4
+    Kd_force = 0.002
+    Ki_force = 0.4
+    desired_force = np.array([0.0, 0.0, 10.0])
+    force_error_prev = np.zeros(3)
+    force_errors = []
+    desired_forces = []
+    tau_forces = []
+    taus = []
 
     with mujoco.viewer.launch_passive(
         model=model,
@@ -143,23 +158,64 @@ def main() -> None:
             if gravity_compensation:
                 tau += data.qfrc_bias[dof_ids]
 
+            # Add force feedback.
+            if force_feedback:
+                if data.ncon > 0:
+                    # Compute the contact forces.
+                    contact_force_local = np.zeros(6)
+                    for i in range(data.ncon):
+                        contact = data.contact[i]
+                        if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+                            mujoco.mj_contactForce(model, data, i, contact_force_local)
+                            break
+                    contact_pos = contact.pos
+                    contact_rot = contact.frame.reshape(3, 3) # from local to world
+                    contact_force_local = contact_force_local[:3]
+                    contact_force_world = contact_rot @ contact_force_local
+                    force_error = desired_force - contact_force_world
+                    force = (Kp_force * force_error + Kd_force * (force_error - force_error_prev) / dt)
+                    force += desired_force 
+                    
+                    if len(force_errors) > 0:
+                        force_error_sum = np.sum(force_errors, axis=0)
+                        force_error_sum *= dt
+                        force += Ki_force * force_error_sum                      
+                    
+                    tau_force = jac.T[:, :3] @ force
+                    tau -= tau_force
+                    force_error_prev = force_error
+                    contact_forces.append(contact_force_world)
+                    force_errors.append(force_error)
+                    desired_forces.append(desired_force)
+                    tau_forces.append(tau_force)
+                else:
+                    contact_force_world = np.zeros(3)
+                    force_error = np.zeros(3)
+                    tau_force = np.zeros(model.nv)
+                    contact_forces.append(contact_force_world)
+                    force_errors.append(force_error)
+                    desired_forces.append(desired_force)
+                    tau_forces.append(tau_force)
+
+            taus.append(tau)
+
             # # Print out the position of the table.
             # table_geom_id = model.geom("board").id
             # table_xpos = data.geom_xpos[table_geom_id]  
             # print(f"Table position: {table_xpos}")
             
-            # Print out the geoms that are making contact.
-            if data.ncon > 0:
-                for i in range(data.ncon):
-                    contact = data.contact[i]
-                    geom1 = model.geom(contact.geom1)
-                    geom2 = model.geom(contact.geom2)
-                    print(f"Contact between {geom1.name} and {geom2.name}")
-                    contact_force = np.zeros(6)
-                    mujoco.mj_contactForce(model, data, i, contact_force)
-            else:
-                contact_force = np.zeros(6)
-            contact_forces.append(contact_force)
+            # # Print out the geoms that are making contact.
+            # if data.ncon > 0:
+            #     for i in range(data.ncon):
+            #         contact = data.contact[i]
+            #         geom1 = model.geom(contact.geom1)
+            #         geom2 = model.geom(contact.geom2)
+            #         print(f"Contact between {geom1.name} and {geom2.name}")
+            #         contact_force = np.zeros(6)
+            #         mujoco.mj_contactForce(model, data, i, contact_force)
+            # else:
+            #     contact_force = np.zeros(6)
+            # contact_forces.append(contact_force)
 
             # Set the control signal and step the simulation.
             np.clip(tau, *model.actuator_ctrlrange.T, out=tau)
@@ -172,11 +228,42 @@ def main() -> None:
                 time.sleep(time_until_next_step)
         
     import matplotlib.pyplot as plt
-    contact_forces = np.array(contact_forces)
-    plt.plot(np.arange(len(contact_forces)) * dt, contact_forces[:, :3])
-    plt.title("Contact Forces Over Time")
-    plt.xlabel("Time Step")
-    plt.legend(["Fx", "Fy", "Fz"])
+    
+    if force_feedback:
+        contact_forces = np.array(contact_forces)
+        desired_forces = np.array(desired_forces)
+        force_errors = np.array(force_errors)
+        tau_forces = np.array(tau_forces)
+        fig = plt.figure(figsize=(10, 5))
+        axs = ["X", "Y", "Z"]
+        for i in range(3):
+            plt.subplot(3, 1, i+1)
+            plt.plot(np.arange(len(contact_forces)) * dt, contact_forces[:, i])
+            plt.plot(np.arange(len(desired_forces)) * dt, desired_forces[:, i])
+            plt.plot(np.arange(len(force_errors)) * dt, force_errors[:, i])
+            plt.xlabel("Time Step")
+            legends = [f"Contact Force {axs[i]}", f"Desired Force {axs[i]}", f"Force Error {axs[i]}"]
+            plt.legend(legends)
+            
+        fig = plt.figure(figsize=(10, 5))
+        axs = [f"joint{i}" for i in range(1, 8)]
+        for i in range(7):
+            plt.subplot(7, 1, i+1)
+            plt.plot(np.arange(len(tau_forces)) * dt, tau_forces[:, i])
+            plt.xlabel("Time Step")
+            legends = [f"Joint Torque {axs[i]}"]
+            plt.legend(legends)
+    
+    fig = plt.figure(figsize=(10, 5))
+    axs = [f"joint{i}" for i in range(1, 8)]
+    taus = np.array(taus)
+    for i in range(7):
+        plt.subplot(7, 1, i+1)
+        plt.plot(np.arange(len(taus)) * dt, taus[:, i])
+        plt.xlabel("Time Step")
+        legends = [f"Joint Torque {axs[i]}"]
+        plt.legend(legends)
+
     plt.show()
 
 if __name__ == "__main__":
