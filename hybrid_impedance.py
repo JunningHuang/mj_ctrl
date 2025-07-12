@@ -1,12 +1,7 @@
 # ------------------------------------------------------------------------------
-# Impedance Control with PD Force Feedback — Circular Motion Task
+# Hybrid Force-Impedance Control for Fast End-Effector Motions
 # ------------------------------------------------------------------------------
-# This implementation enhances impedance control by adding PD feedback in force space:
-#     F = F_desired + Kp * (F_desired - F_contact) + Kd * d/dt(F_error)
-#     τ_force = Jᵀ * F
-#
-# Notes:
-# - Requires accurate Jacobian and stable force estimation from simulation.
+# 
 # ------------------------------------------------------------------------------
 
 import mujoco
@@ -25,18 +20,6 @@ Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
 
 # Damping ratio for both Cartesian and joint impedance control.
 damping_ratio = 1.0
-
-# Gains for the twist computation. These should be between 0 and 1. 0 means no
-# movement, 1 means move the end-effector to the target in one integration step.
-Kpos: float = 0.95
-
-# Gain for the orientation component of the twist computation. This should be
-# between 0 and 1. 0 means no movement, 1 means move the end-effector to the target
-# orientation in one integration step.
-Kori: float = 0.95
-
-# Integration timestep in seconds.
-integration_dt: float = 1.0
 
 # Whether to enable gravity compensation.
 gravity_compensation: bool = True
@@ -144,6 +127,8 @@ def main() -> None:
     
     target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
+    x_dot_desired = np.zeros(2)
+    x_ddot_desired = np.zeros(2)
 
     # Circle drawing parameters
     circle_center = np.array([0.5, 0.0, 0.45])  # Center of circle on table
@@ -158,10 +143,6 @@ def main() -> None:
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
-    twist = np.zeros(6)
-    site_quat = np.zeros(4)
-    site_quat_conj = np.zeros(4)
-    error_quat = np.zeros(4)
     M_inv = np.zeros((model.nv, model.nv))
     Mx = np.zeros((6, 6))
     
@@ -225,66 +206,86 @@ def main() -> None:
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
-                    # Calculate circle position
                     angle = angular_speed * elapsed_time
+                    # x
                     target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
                     target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
                     target_pos[2] = circle_center[2]  # Keep Z at table height
+                    # x_dot
+                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
+                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
+                    # x_dot_desired[2] = 0.0
+                    # x_ddot
+                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
+                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
+                    # x_ddot_desired[2] = 0.0
                 else:
                     # Circle completed, stop drawing
                     circle_drawing = False
                     print("Circle drawing completed!")
-            
-            # Spatial velocity (aka twist).
-            dx = target_pos - data.site(site_id).xpos
-            twist[:3] = Kpos * dx / integration_dt
-            mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
-            mujoco.mju_negQuat(site_quat_conj, site_quat)
-            mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
-            mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
-            twist[3:] *= Kori / integration_dt
 
             # Jacobian.
             mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
-            jac_list = [jac[2:3, :], jac[0:2, :]]
-            
-            # Compute the task-space inertia matrix.
+            A = np.array([[0, 0, 1, 0, 0, 0]]) # 1 x 6
+            B = np.array([[1, 0, 0, 0, 0, 0],   # 2 x 6
+                        [0, 1, 0, 0, 0, 0]])
+            # jac 
+            J_phi = A @ jac
+            J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
+            jac_list = [J_phi, J_motion]
+            _, J_bars= hierarchical_impedance_jacob(jac_list)
+            J_phi = J_bars[0]
+            J_motion = J_bars[1]
+            J_null = J_bars[2]
+            # Compute the task-space inertia matrix for task space.
+            # mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+            # Mx_inv = jac @ M_inv @ jac.T
+            # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+            #     Mx = np.linalg.inv(Mx_inv)
+            # else:
+            #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+
+            # Compute the task-space inertia matrix for x-y plane
             mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-            Mx_inv = jac @ M_inv @ jac.T
-            if abs(np.linalg.det(Mx_inv)) >= 1e-2:
-                Mx = np.linalg.inv(Mx_inv)
+            Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
+            if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
+                Mxy = np.linalg.inv(Mxy_inv)
             else:
-                Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
-
-            # M without inverse
-            # M = np.zeros((model.nv, model.nv))
-            # mujoco.mj_fullM(model, M, data.qM)
-            Ns, Jbars = hierarchical_impedance_jacob(jac_list, model.nv, M=None)
-            J_phi = Jbars[0]
-            J_x = Jbars[1]
-            J_v = Jbars[2]
-
-            C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel)
+                Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
 
             # task space
-            k_x_stiffness = 5000  # N/m (higher stiffness for precise tracking)
-            k_y_stiffness = 5000  # N/m (same for both XY directions)
-            Kx = np.diag([k_x_stiffness, k_y_stiffness])  # (2×2)
-            # TODO: Dx
-            D_x = None
-
-            F_ctrl_x = (Mx @ x_ddot_desired + 
-            C_x @ x_dot_desired - 
-            K_x @ x_tilde - 
-            D_x @ x_dot_tilde)
-
-            # Compute generalized forces.
-            tau = jac.T @ Mx @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids]))
-
-            # Add joint task in nullspace.
-            Jbar = M_inv @ jac.T @ Mx
-            ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
-            tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
+            x_tilde = data.site_xpos[site_id][0:2] - target_pos[0:2]
+            site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
+            x_dot_tilde = site_vel[0:2] - x_dot_desired
+            # F_ctrl_x = (Mxy @ x_ddot_desired + 
+            #             C_x @ x_dot_desired - 
+            #             K_x @ x_tilde - 
+            #             D_x @ x_dot_tilde)
+            # TODO：task space coriolis matrix in motion space is complicated 
+            # https://www.perplexity.ai/search/mujoco-mj-solvem-model-data-m-qM7wE16wQSeuwmxFysbosw?5=d
+            F_ctrl_x = (Mxy @ x_ddot_desired - 
+                        Kp[:2] @ x_tilde - 
+                        Kd[:2] @ x_dot_tilde)
+            
+            # constraint space
+            Mx_phi_inv = np.linalg.inv(J_phi @ M_inv @ J_phi.T)
+            if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
+                lambda_phi = np.linalg.inv(Mx_phi_inv)
+            else:
+                lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
+            C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
+            F_desired_contact = np.array([-10.0])
+            # computeJointJacobiansTimeVariation
+            pino.computeJointJacobiansTimeVariation(model, data, data.qpos, data.qvel)
+            J_dot = np.zeros((6, model.nv))
+            pino.getFrameJacobianTimeVariation(model, data, site_id, pino.LOCAL_WORLD_ALIGNED, J_dot)
+            J_phi_dot = A @ J_dot
+            F_ctrl_constraint = (
+                lambda_phi @ F_desired_contact -
+                lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + J_null.T @ F_ctrl_v) +
+                lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x + J_null.T @ F_ext_v) +
+                lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+            )
 
             # Add gravity compensation.
             if gravity_compensation:

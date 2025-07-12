@@ -1,7 +1,12 @@
 # ------------------------------------------------------------------------------
-# Hybrid Force-Impedance Control for Fast End-Effector Motions
+# Impedance Control with PD Force Feedback — Circular Motion Task
 # ------------------------------------------------------------------------------
-# 
+# This implementation enhances impedance control by adding PD feedback in force space:
+#     F = F_desired + Kp * (F_desired - F_contact) + Kd * d/dt(F_error)
+#     τ_force = Jᵀ * F
+#
+# Notes:
+# - Requires accurate Jacobian and stable force estimation from simulation.
 # ------------------------------------------------------------------------------
 
 import mujoco
@@ -105,6 +110,7 @@ def main() -> None:
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
+    angular_speed = np.pi
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -173,7 +179,8 @@ def main() -> None:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
                     # Calculate circle position
-                    angle = 2 * np.pi * elapsed_time / circle_duration
+                    angle = angular_speed * elapsed_time
+                    # x
                     target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
                     target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
                     target_pos[2] = circle_center[2]  # Keep Z at table height
