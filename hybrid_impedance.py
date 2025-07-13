@@ -244,13 +244,6 @@ def main() -> None:
             _, s, Vt = np.linalg.svd(jac_1)
             rank = np.sum(s > 1e-10)
             J_null = Vt[rank:, :] @ N2.T
-            # Compute the task-space inertia matrix for task space.
-            # mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-            # Mx_inv = jac @ M_inv @ jac.T
-            # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
-            #     Mx = np.linalg.inv(Mx_inv)
-            # else:
-            #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
 
             # Compute the task-space inertia matrix for x-y plane
             mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
@@ -273,6 +266,10 @@ def main() -> None:
             F_ctrl_x = (Mxy @ x_ddot_desired - 
                         Kp[:2] * x_tilde - 
                         Kd[:2] * x_dot_tilde)
+            # F_ctrl_x = (M_x @ x_ddot_desired + 
+            # C_x @ x_dot_desired - 
+            # K_x @ x_tilde - 
+            # D_x @ x_dot_tilde)
             
             # TODO: null space, check this one, hierachial probably not to be used
             # Jbar = M_inv @ jac.T @ Mx
