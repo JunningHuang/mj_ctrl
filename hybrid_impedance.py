@@ -262,7 +262,7 @@ def main() -> None:
             #             K_x @ x_tilde - 
             #             D_x @ x_dot_tilde)
             # TODO：task space coriolis matrix in motion space is complicated 
-            # https://www.perplexity.ai/search/mujoco-mj-solvem-model-data-m-qM7wE16wQSeuwmxFysbosw?5=d
+        
             F_ctrl_x = (Mxy @ x_ddot_desired - 
                         Kp[:2] * x_tilde - 
                         Kd[:2] * x_dot_tilde)
