@@ -27,20 +27,19 @@ gravity_compensation: bool = True
 # Simulation timestep in seconds.
 dt: float = 0.002
 
-def dynamically_consistent_pinv(J, M):
+def dynamically_consistent_inv(jac, M_inv):
     """
     Compute dynamically consistent pseudoinverse
     J^{M+} = M^{-1} J^T (J M^{-1} J^T)^{-1}
     """
-    M_inv = np.linalg.inv(M)
-    temp = J @ M_inv @ J.T
-    if np.linalg.det(temp) > 1e-6:  # Check singularity
-        return M_inv @ J.T @ np.linalg.inv(temp)
+    Mx_inv = jac @ M_inv @ jac.T
+    if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+        Mx = np.linalg.inv(Mx_inv)
     else:
-        # Use regular pseudoinverse if singular
-        return pinv(J)
+        Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+    return M_inv @ jac.T @ Mx
 
-def hierarchical_impedance_jacob(jac_list: list, dim, M):
+def hierarchical_impedance_jacob(jac_list: list, dim):
     # draw circle: only 2 subspace jac can be defined,
     # last one - null space, there is no jac, it has to be calculated
     # if give full M, dynamical consistant inverse can be found - J_inv
@@ -187,7 +186,6 @@ def main() -> None:
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
             step_start = time.time()
-
             current_contact_force = check_world_ee_contact_force(data, model)[2]
             F_ext_phi = current_contact_force[2]
             F_ext_x = current_contact_force[:2]
@@ -230,13 +228,22 @@ def main() -> None:
             B = np.array([[1, 0, 0, 0, 0, 0],   # 2 x 6
                         [0, 1, 0, 0, 0, 0]])
             # jac 
-            J_phi = A @ jac
-            J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
-            jac_list = [J_phi, J_motion]
-            _, J_bars= hierarchical_impedance_jacob(jac_list)
-            J_phi = J_bars[0]
-            J_motion = J_bars[1]
-            J_null = J_bars[2]
+            # J_phi = A @ jac
+            J_phi = jac[2:3, :]
+            # J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
+            J_motion = jac[0:2, :]
+            jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
+            # according to paper equation (9), only null space Jacobian needs to be derived
+            # Compute the task-space inertia matrix.
+            mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+            
+            # dynamically consistent pseudoinverse
+            jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
+            N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
+            # find null space J_null
+            _, s, Vt = np.linalg.svd(jac_1)
+            rank = np.sum(s > 1e-10)
+            J_null = Vt[rank:, :] @ N2.T
             # Compute the task-space inertia matrix for task space.
             # mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
             # Mx_inv = jac @ M_inv @ jac.T
@@ -264,8 +271,13 @@ def main() -> None:
             # TODO：task space coriolis matrix in motion space is complicated 
             # https://www.perplexity.ai/search/mujoco-mj-solvem-model-data-m-qM7wE16wQSeuwmxFysbosw?5=d
             F_ctrl_x = (Mxy @ x_ddot_desired - 
-                        Kp[:2] @ x_tilde - 
-                        Kd[:2] @ x_dot_tilde)
+                        Kp[:2] * x_tilde - 
+                        Kd[:2] * x_dot_tilde)
+            
+            # TODO: null space, check this one, hierachial probably not to be used
+            # Jbar = M_inv @ jac.T @ Mx
+            F_ctrl_v = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+            # tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
             
             # constraint space
             Mx_phi_inv = np.linalg.inv(J_phi @ M_inv @ J_phi.T)
@@ -276,16 +288,19 @@ def main() -> None:
             C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
             F_desired_contact = np.array([-10.0])
             # computeJointJacobiansTimeVariation
-            pino.computeJointJacobiansTimeVariation(model, data, data.qpos, data.qvel)
+            pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
             J_dot = np.zeros((6, model.nv))
-            pino.getFrameJacobianTimeVariation(model, data, site_id, pino.LOCAL_WORLD_ALIGNED, J_dot)
+            pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED, J_dot)
             J_phi_dot = A @ J_dot
             F_ctrl_constraint = (
                 lambda_phi @ F_desired_contact -
                 lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + J_null.T @ F_ctrl_v) +
-                lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x + J_null.T @ F_ext_v) +
+                lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) +
                 lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
             )
+
+            J_bar = np.vstack([J_phi, J_motion, J_null])
+            tau = J_bar.T @ 
 
             # Add gravity compensation.
             if gravity_compensation:

@@ -162,8 +162,9 @@ def main() -> None:
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
             step_start = time.time()
-
-            current_contact_force = check_world_ee_contact_force(data, model)[2]
+            world_frame_force = check_world_ee_contact_force(data, model)
+            current_contact_force = world_frame_force[2]
+            current_friction_force = world_frame_force[:2]
             # Check for stable contact to start drawing
             if current_contact_force > contact_threshold and not circle_drawing:
                 contact_stable_time += dt
