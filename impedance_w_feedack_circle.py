@@ -14,6 +14,17 @@ import mujoco.viewer
 import numpy as np
 import time
 
+import logging
+
+# Configure the logger
+logging.basicConfig(
+    filename='baseline_force_log.txt',        # log file name
+    filemode='w',                    # 'w' to overwrite each run, 'a' to append
+    level=logging.INFO,              # set to DEBUG for more details
+    format='%(asctime)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+
 # Cartesian impedance control gains.
 impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
 impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
@@ -135,7 +146,7 @@ def main() -> None:
     contact_forces = []
 
     # Parameters for the force feedback controller.
-    force_feedback = True
+    force_feedback = False
     Kp_force = 0.4
     Kd_force = 0.002
     Ki_force = 0.4
@@ -174,7 +185,7 @@ def main() -> None:
                     print("Starting circle drawing!")
             elif current_contact_force <= contact_threshold:
                 contact_stable_time = 0
-
+            logging.info(f"Time: {step_start:.3f}, current_contact_force: {current_contact_force}")
             # Update target position for circle drawing
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
@@ -214,6 +225,7 @@ def main() -> None:
             tau = jac.T @ Mx @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids]))
 
             # Add joint task in nullspace.
+            # TODO: inverse kinematics to track q0 over time, so ee orientation can't be kept
             Jbar = M_inv @ jac.T @ Mx
             ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
             tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq

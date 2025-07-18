@@ -11,6 +11,18 @@ import time
 from scipy.linalg import pinv
 import pinocchio as pino
 
+import logging
+
+# Configure the logger
+logging.basicConfig(
+    filename='hybrid_force_log.txt',        # log file name
+    filemode='w',                    # 'w' to overwrite each run, 'a' to append
+    level=logging.INFO,              # set to DEBUG for more details
+    format='%(asctime)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+
+
 # Cartesian impedance control gains.
 impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
 impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
@@ -210,6 +222,26 @@ def main() -> None:
             elif F_ext_phi <= contact_threshold:
                 contact_stable_time = 0
 
+            if circle_drawing:
+                elapsed_time = data.time - circle_start_time
+                if elapsed_time < circle_duration:
+                    angle = angular_speed * elapsed_time
+                    # x
+                    target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
+                    target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
+                    target_pos[2] = circle_center[2]  # Keep Z at table height
+                    # x_dot
+                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
+                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
+                    # x_dot_desired[2] = 0.0
+                    # x_ddot
+                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
+                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
+                    # x_ddot_desired[2] = 0.0
+                else:
+                    # Circle completed, stop drawing
+                    circle_drawing = False
+                    print("Circle drawing completed!")
             #-----------------------------------------------------------------------
             # Position Control
             # if there is no contact, use baseline algo to move the ee to surface
@@ -249,115 +281,100 @@ def main() -> None:
             #--------------------------------------------------------
             # Hybrid control for Force Control
             #--------------------------------------------------------
-            if circle_drawing:
-                elapsed_time = data.time - circle_start_time
-                if elapsed_time < circle_duration:
-                    angle = angular_speed * elapsed_time
-                    # x
-                    target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
-                    target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
-                    target_pos[2] = circle_center[2]  # Keep Z at table height
-                    # x_dot
-                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
-                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
-                    # x_dot_desired[2] = 0.0
-                    # x_ddot
-                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
-                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
-                    # x_ddot_desired[2] = 0.0
-                else:
-                    # Circle completed, stop drawing
-                    circle_drawing = False
-                    print("Circle drawing completed!")
-
-                # ------------------------------------------------------
-                # Jacobians
-                # ------------------------------------------------------
-                mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
-                A = np.array([[0, 0, 1, 0, 0, 0]]) # 1 x 6
-                B = np.array([[1, 0, 0, 0, 0, 0],   # 2 x 6
-                            [0, 1, 0, 0, 0, 0]])
-                # jac 
-                # J_phi = A @ jac
-                J_phi = jac[2:3, :]
-                # J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
-                J_motion = jac[0:2, :]
-                jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
-                # according to paper equation (9), only null space Jacobian needs to be derived
+            # if circle_drawing:
+            #     # ------------------------------------------------------
+            #     # Jacobians
+            #     # ------------------------------------------------------
+            #     mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
+            #     logging.info(f"Time: {elapsed_time:.3f}, jac: {jac}")
+            #     A = np.array([[0, 0, 1, 0, 0, 0]]) # 1 x 6
+            #     B = np.array([[1, 0, 0, 0, 0, 0],   # 2 x 6
+            #                 [0, 1, 0, 0, 0, 0]])
+            #     # jac 
+            #     # J_phi = A @ jac
+            #     J_phi = jac[2:3, :]
+            #     # J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
+            #     J_motion = jac[0:2, :]
+            #     jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
+            #     # according to paper equation (9), only null space Jacobian needs to be derived
+            #     logging.info(f"Time: {elapsed_time:.3f}, J_phi: {J_phi}, J_motion: {J_motion}")
+            #     # Compute the task-space inertia matrix.
+            #     mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
                 
-                # Compute the task-space inertia matrix.
-                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-                
-                #----------------------------------------------------
-                # Null Space torque
-                #----------------------------------------------------
-                # dynamically consistent pseudoinverse
-                jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
-                N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
-                tau_ctrl_v = N2 @ (Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids])
-                # # find null space J_null
-                # _, s, Vt = np.linalg.svd(jac_1)
-                # rank = np.sum(s > 1e-10)
-                # J_null = Vt[rank:, :]
-                # J_v = J_null @ N2.T
+            #     #----------------------------------------------------
+            #     # Null Space torque
+            #     #----------------------------------------------------
+            #     # dynamically consistent pseudoinverse
+            #     jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
+            #     N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
+            #     tau_ctrl_v = N2 @ (Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids])
+            #     logging.info(f"Time: {elapsed_time:.3f}, tau_ctrl_v: {tau_ctrl_v}")
+            #     # # find null space J_null
+            #     # _, s, Vt = np.linalg.svd(jac_1)
+            #     # rank = np.sum(s > 1e-10)
+            #     # J_null = Vt[rank:, :]
+            #     # J_v = J_null @ N2.T
 
-                #---------------------------------------------------
-                # Motion Space
-                #----------------------------------------------------
-                # Compute the task-space inertia matrix for x-y plane
-                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-                Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
-                if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
-                    Mxy = np.linalg.inv(Mxy_inv)
-                else:
-                    Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
+            #     #---------------------------------------------------
+            #     # Motion Space
+            #     #----------------------------------------------------
+            #     # Compute the task-space inertia matrix for x-y plane
+            #     mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+            #     Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
+            #     if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
+            #         Mxy = np.linalg.inv(Mxy_inv)
+            #     else:
+            #         Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
 
-                x_tilde = data.site_xpos[site_id][0:2] - target_pos[0:2]
-                site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
-                x_dot_tilde = site_vel[0:2] - x_dot_desired
-                # F_ctrl_x = (Mxy @ x_ddot_desired + 
-                #             C_x @ x_dot_desired - 
-                #             K_x @ x_tilde - 
-                #             D_x @ x_dot_tilde)
-                # TODO：task space coriolis matrix in motion space is complicated 
+            #     x_tilde = data.site_xpos[site_id][0:2] - target_pos[0:2]
+            #     site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
+            #     x_dot_tilde = site_vel[0:2] - x_dot_desired
+            #     # F_ctrl_x = (Mxy @ x_ddot_desired + 
+            #     #             C_x @ x_dot_desired - 
+            #     #             K_x @ x_tilde - 
+            #     #             D_x @ x_dot_tilde)
+            #     # TODO：task space coriolis matrix in motion space is complicated 
             
-                F_ctrl_x = (Mxy @ x_ddot_desired - 
-                            Kp[:2] * x_tilde - 
-                            Kd[:2] * x_dot_tilde)
-                # F_ctrl_x = (M_x @ x_ddot_desired + 
-                # C_x @ x_dot_desired - 
-                # K_x @ x_tilde - 
-                # D_x @ x_dot_tilde)
+            #     F_ctrl_x = (Mxy @ x_ddot_desired - 
+            #                 Kp[:2] * x_tilde - 
+            #                 Kd[:2] * x_dot_tilde)
+            #     logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
+            #     # F_ctrl_x = (M_x @ x_ddot_desired + 
+            #     # C_x @ x_dot_desired - 
+            #     # K_x @ x_tilde - 
+            #     # D_x @ x_dot_tilde)
                 
-                #------------------------------------------------------
-                # Constraint space
-                #------------------------------------------------------
-                Mx_phi_inv = J_phi @ M_inv @ J_phi.T
-                if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
-                    lambda_phi = np.linalg.inv(Mx_phi_inv)
-                else:
-                    lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
-                C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
-                F_desired_contact = np.array([-10.0])
-                # computeJointJacobiansTimeVariation
-                pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
-                J_phi_dot = A @ J_dot
-                F_ctrl_constraint = (
-                    lambda_phi @ F_desired_contact -
-                    lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + tau_ctrl_v) +
-                    lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) +
-                    lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                )
+            #     #------------------------------------------------------
+            #     # Constraint space
+            #     #------------------------------------------------------
+            #     Mx_phi_inv = J_phi @ M_inv @ J_phi.T
+            #     if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
+            #         lambda_phi = np.linalg.inv(Mx_phi_inv)
+            #     else:
+            #         lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
+            #     C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
+            #     F_desired_contact = np.array([-10.0])
+            #     # computeJointJacobiansTimeVariation
+            #     pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
+            #     J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
+            #     J_phi_dot = A @ J_dot
+            #     F_ctrl_constraint = (
+            #         lambda_phi @ F_desired_contact -
+            #         lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + tau_ctrl_v) +
+            #         lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) +
+            #         lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+            #     )
+            #     logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}, J_phi_dot: {J_phi_dot}")
+            #     #------------------------------
+            #     # Sum up all subspace
+            #     #------------------------------
+            #     tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
+            #     logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
-                #------------------------------
-                # Sum up all subspace
-                #------------------------------
-                tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
-
-                # Add gravity compensation.
-                if gravity_compensation:
-                    tau += data.qfrc_bias[dof_ids]
+            #     # Add gravity compensation.
+            #     if gravity_compensation:
+            #         tau += data.qfrc_bias[dof_ids]
+            #         logging.info(f"Time: {elapsed_time:.3f}, g: {data.qfrc_bias[dof_ids]}")
 
             # Add force feedback.
             if force_feedback:
