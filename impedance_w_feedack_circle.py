@@ -13,7 +13,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
-
+from equilibrium_position_tracking import fast_ik_jacobian_based
 import logging
 
 # Configure the logger
@@ -146,7 +146,7 @@ def main() -> None:
     contact_forces = []
 
     # Parameters for the force feedback controller.
-    force_feedback = False
+    force_feedback = True
     Kp_force = 0.4
     Kd_force = 0.002
     Ki_force = 0.4
@@ -156,6 +156,8 @@ def main() -> None:
     desired_forces = []
     tau_forces = []
     taus = []
+    ee_positions = []
+    target_positions = []
 
     with mujoco.viewer.launch_passive(
         model=model,
@@ -183,14 +185,14 @@ def main() -> None:
                     circle_drawing = True
                     circle_start_time = data.time
                     print("Starting circle drawing!")
+                    logging.info("Starting circle drawing!")
             elif current_contact_force <= contact_threshold:
                 contact_stable_time = 0
             logging.info(f"Time: {step_start:.3f}, current_contact_force: {current_contact_force}")
-            # Update target position for circle drawing
+            
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
-                    # Calculate circle position
                     angle = angular_speed * elapsed_time
                     # x
                     target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
@@ -200,8 +202,11 @@ def main() -> None:
                     # Circle completed, stop drawing
                     circle_drawing = False
                     print("Circle drawing completed!")
-            
-            # Spatial velocity (aka twist).
+
+            # record ee position and target pos
+            ee_positions.append(data.site(site_id).xpos.copy())
+            target_positions.append(target_pos.copy())
+            # control logic
             dx = target_pos - data.site(site_id).xpos
             twist[:3] = Kpos * dx / integration_dt
             mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
@@ -212,7 +217,7 @@ def main() -> None:
 
             # Jacobian.
             mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
-
+            logging.info(f"Time: {step_start:.3f}, jac: {jac}")
             # Compute the task-space inertia matrix.
             mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
             Mx_inv = jac @ M_inv @ jac.T
@@ -227,12 +232,22 @@ def main() -> None:
             # Add joint task in nullspace.
             # TODO: inverse kinematics to track q0 over time, so ee orientation can't be kept
             Jbar = M_inv @ jac.T @ Mx
-            ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+            
+            if circle_drawing:
+                # Create temporary data for IK
+                data_temp = mujoco.MjData(model)
+                data_temp.qpos[:] = data.qpos.copy()
+                q_v = fast_ik_jacobian_based(model, data_temp, target_pos, target_quat, site_id)
+                ddq = Kp_null * (q_v - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+            else:
+                ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
             tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
+            logging.info(f"Time: {step_start:.3f}, tau: {tau}")
 
             # Add gravity compensation.
             if gravity_compensation:
                 tau += data.qfrc_bias[dof_ids]
+            logging.info(f"Time: {step_start:.3f}, tau + g: {tau}")
 
             # Add force feedback.
             if force_feedback:
@@ -340,6 +355,28 @@ def main() -> None:
         legends = [f"Joint Torque {axs[i]}"]
         plt.legend(legends)
 
+    plt.show()
+
+    # ------------------------------------
+    # Plot end effector
+    # -----------------------------------
+    ee_positions = np.array(ee_positions)
+    target_positions = np.array(target_positions)
+    time_steps = np.arange(len(ee_positions)) * dt  # or use your timestamps array
+    # Create figure with 3 subplots
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
+    # Plot X, Y, Z in separate subplots
+    axes_labels = ['X', 'Y', 'Z']
+    for i in range(3):
+        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
+        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
+        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
+    # Add x-label to bottom subplot
+    axes[2].set_xlabel('Time (s)')
+    plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
