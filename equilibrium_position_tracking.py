@@ -2,61 +2,6 @@ import numpy as np
 from scipy.optimize import minimize
 import mujoco
 
-class AdaptiveIKNullSpace:
-    """
-    Class to manage IK-based null space control during circle drawing
-    """
-    def __init__(self, model, update_frequency=10):
-        self.model = model
-        self.update_frequency = update_frequency  # Update every N steps
-        self.step_counter = 0
-        self.q_ik_reference = None
-        self.last_target_pos = None
-        self.last_target_quat = None
-        
-    def update_ik_reference(self, data, target_pos, target_quat, site_id, force_update=False):
-        """
-        Update IK reference configuration
-        """
-        self.step_counter += 1
-        
-        # Check if we need to update
-        should_update = (
-            force_update or 
-            self.step_counter % self.update_frequency == 0 or
-            self.q_ik_reference is None or
-            (self.last_target_pos is not None and 
-             np.linalg.norm(target_pos - self.last_target_pos) > 0.01)  # 1cm change
-        )
-        
-        if should_update:
-            # Create temporary data for IK
-            data_temp = mujoco.MjData(self.model)
-            data_temp.qpos[:] = data.qpos.copy()
-            
-            # Compute IK solution
-            self.q_ik_reference = fast_ik_jacobian_based(
-                self.model, data_temp, target_pos, target_quat, site_id
-            )
-            
-            # Store last target for comparison
-            self.last_target_pos = target_pos.copy()
-            self.last_target_quat = target_quat.copy()
-            
-            print(f"Updated IK reference at step {self.step_counter}")
-    
-    def get_null_space_torque(self, q_current, qvel, Kp_null, Kd_null, N_null):
-        """
-        Compute null space torque using IK reference
-        """
-        if self.q_ik_reference is not None:
-            # Use IK solution as reference
-            ddq = Kp_null * (self.q_ik_reference - q_current) - Kd_null * qvel
-            return N_null @ ddq
-        else:
-            return np.zeros(len(q_current))
-        
-
 def fast_ik_jacobian_based(model, data, target_pos, target_quat, site_id, max_iterations=10, tolerance=1e-4):
     """
     Fast Jacobian-based IK solver (faster than optimization-based)
