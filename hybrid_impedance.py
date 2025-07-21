@@ -30,7 +30,7 @@ impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
 Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
 
 # Damping ratio for both Cartesian and joint impedance control.
-damping_ratio = 1.0
+damping_ratio = 0.7
 
 # Gains for the twist computation. These should be between 0 and 1. 0 means no
 # movement, 1 means move the end-effector to the target in one integration step.
@@ -89,7 +89,7 @@ def hierarchical_impedance_jacob(jac_list: list, dim):
     return Ns, J_bars
 
 def check_world_ee_contact_force(data, model):
-    contact_force_world = np.zeros(3)
+    contact_force_world = np.zeros(6)
     if data.ncon > 0:
         # Compute the contact forces.
         contact_force_local = np.zeros(6)
@@ -99,8 +99,8 @@ def check_world_ee_contact_force(data, model):
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
         contact_rot = contact.frame.reshape(3, 3) # from local to world
-        contact_force_local = contact_force_local[:3]
-        contact_force_world = contact_rot @ contact_force_local
+        contact_force_world[:3] = contact_rot @ contact_force_local[:3]
+        contact_force_world[3:] = contact_rot @ contact_force_local[3:]
     return contact_force_world
 
 def main() -> None:
@@ -149,8 +149,8 @@ def main() -> None:
     
     target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
-    x_dot_desired = np.zeros(2)
-    x_ddot_desired = np.zeros(2)
+    x_dot_desired = np.zeros(3)
+    x_ddot_desired = np.zeros(3)
 
     # normal control
     twist = np.zeros(6)
@@ -200,6 +200,15 @@ def main() -> None:
     tau_forces = []
     taus = []
 
+    # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
+    S_f = np.zeros((6, 3)) 
+    S_f[2, 0] = 1
+    S_f[3, 1] = 1
+    S_f[4, 2] = 1
+    S_v = np.zeros((6, 3))
+    S_v[0, 0] = 1
+    S_v[1, 1] = 1
+    S_v[5, 2] = 1
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
@@ -218,7 +227,7 @@ def main() -> None:
             step_start = time.time()
             current_contact_force = check_world_ee_contact_force(data, model)
             F_ext_phi = current_contact_force[2]
-            F_ext_x = current_contact_force[:2]
+            F_ext_x = current_contact_force @ S_v
             F_ext_v = None # no external contact on the arm and elbows
             # Check for stable contact to start drawing
             if F_ext_phi > contact_threshold and not circle_drawing:
@@ -242,11 +251,11 @@ def main() -> None:
                     # x_dot
                     x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
                     x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
-                    # x_dot_desired[2] = 0.0
+                    x_dot_desired[2] = 0.0
                     # x_ddot
                     x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
                     x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
-                    # x_ddot_desired[2] = 0.0
+                    x_ddot_desired[2] = 0.0
                 else:
                     # Circle completed, stop drawing
                     circle_drawing = False
@@ -297,23 +306,20 @@ def main() -> None:
                 # ------------------------------------------------------
                 mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
                 logging.info(f"Time: {elapsed_time:.3f}, jac: {jac}")
-                A = np.array([[0, 0, 1, 0, 0, 0]]) # 1 x 6
-                B = np.array([[1, 0, 0, 0, 0, 0],   # 2 x 6
-                            [0, 1, 0, 0, 0, 0]])
                 # jac 
                 # J_phi = A @ jac
-                J_phi = jac[2:, :]
-                # J_motion = (2 * B.T @ B @ np.concatenate([data.site_xpos[site_id], np.zeros(3)])).T @ jac
-                J_motion = jac[0:2, :]
+                J_phi = S_f.T @ jac
+                J_motion = S_v.T @ jac
                 jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
                 # according to paper equation (9), only null space Jacobian needs to be derived
                 logging.info(f"Time: {elapsed_time:.3f}, J_phi: {J_phi}, J_motion: {J_motion}")
-                # Compute the task-space inertia matrix.
-                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+
                 
                 #----------------------------------------------------
                 # Null Space torque
                 #----------------------------------------------------
+                # Compute the task-space inertia matrix.
+                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
                 # dynamically consistent pseudoinverse
                 jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
                 N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
@@ -336,18 +342,22 @@ def main() -> None:
                 else:
                     Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
 
-                x_tilde = data.site_xpos[site_id][0:2] - target_pos[0:2]
+                twist[:3] = target_pos - data.site(site_id).xpos
+                mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
+                mujoco.mju_negQuat(site_quat_conj, site_quat)
+                mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
+                mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
+                x_tilde = twist @ S_v
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
-                x_dot_tilde = site_vel[0:2] - x_dot_desired
+                x_dot_tilde = (site_vel - np.concatenate([x_dot_desired, [0,0,0]])) @ S_v
                 # F_ctrl_x = (Mxy @ x_ddot_desired + 
                 #             C_x @ x_dot_desired - 
                 #             K_x @ x_tilde - 
                 #             D_x @ x_dot_tilde)
                 # TODO：task space coriolis matrix in motion space is complicated 
-            
                 F_ctrl_x = (Mxy @ x_ddot_desired - 
-                            Kp[:2] * x_tilde - 
-                            Kd[:2] * x_dot_tilde)
+                            Kp @ S_v * x_tilde - 
+                            Kd @ S_v * x_dot_tilde)
                 logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
                 # F_ctrl_x = (M_x @ x_ddot_desired + 
                 # C_x @ x_dot_desired - 
@@ -363,18 +373,18 @@ def main() -> None:
                 else:
                     lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
                 C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
-                F_desired_contact = np.array([-10.0])
+                F_desired_contact = np.array([-10.0, 0, 0])
                 # computeJointJacobiansTimeVariation
                 pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
-                J_phi_dot = A @ J_dot
+                # J_phi_dot = S_f @ J_dot
                 F_ctrl_constraint = (
-                    lambda_phi @ F_desired_contact -
+                    F_desired_contact -
                     lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + tau_ctrl_v) +
                     lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) 
                 )
                 # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}, J_phi_dot: {J_phi_dot}")
+                logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}")
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------

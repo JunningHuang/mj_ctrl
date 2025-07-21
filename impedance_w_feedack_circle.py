@@ -13,7 +13,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
-from equilibrium_position_tracking import fast_ik_jacobian_based
+from reference_position_tracking import fast_ik_jacobian_based
 import logging
 
 # Configure the logger
