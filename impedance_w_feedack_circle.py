@@ -109,7 +109,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     
-    target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
 
     # Circle drawing parameters
@@ -183,6 +183,7 @@ def main() -> None:
                 contact_stable_time += dt
                 if contact_stable_time >= contact_stable_duration:
                     circle_drawing = True
+                    force_feedback = False
                     circle_start_time = data.time
                     print("Starting circle drawing!")
             elif current_contact_force <= contact_threshold:

@@ -22,15 +22,7 @@ logging.basicConfig(
 )
 
 
-# Cartesian impedance control gains.
-impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
-impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
 
-# Joint impedance control gains.
-Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
-
-# Damping ratio for both Cartesian and joint impedance control.
-damping_ratio = 1.0
 
 # Gains for the twist computation. These should be between 0 and 1. 0 means no
 # movement, 1 means move the end-effector to the target in one integration step.
@@ -99,9 +91,17 @@ def check_world_ee_contact_force(data, model):
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
         contact_rot = contact.frame.reshape(3, 3) # from local to world
+        contact_pos = contact.pos
+        force_local = contact_force_local[:3]
+        moment_local = contact_force_local[3:]
+        force_world = contact_rot @ force_local
         # TODO: can I get world frame moment like this?
-        contact_force_world[:3] = contact_rot @ contact_force_local[:3]
-        contact_force_world[3:] = contact_rot @ contact_force_local[3:]
+        # answer: moment_world = R @ moment_local + p × force_worl
+        moment_rotated = contact_rot @ moment_local
+        position_cross_force = np.cross(contact_pos, force_world)
+        moment_world = moment_rotated + position_cross_force
+        contact_force_world[:3] = force_world
+        contact_force_world[3:] = moment_world
     return contact_force_world
 
 def main() -> None:
@@ -115,13 +115,32 @@ def main() -> None:
     pino_data = pino_model.createData()
 
     model.opt.timestep = dt
-
+    # Following parameters are different during circle-drawing and moving-to-table phrases
+    damping_ratio = 1.0
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
+    impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
     Kp = np.concatenate([impedance_pos, impedance_ori], axis=0)
     Kd = np.concatenate([damping_pos, damping_ori], axis=0)
+    # Joint impedance control gains.
+    Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+    # Kp_null *= 5
     Kd_null = damping_ratio * 2 * np.sqrt(Kp_null)
+
+    k_normal = 2500
+    K_material = np.diag([
+        k_normal * 0.1,   # x tangential
+        k_normal * 0.1,   # y tangential  
+        k_normal,         # z normal
+        k_normal * 0.01,  # rx rotational
+        k_normal * 0.01,  # ry rotational
+        k_normal * 0.01   # rz rotational
+    ])
+    
+    # Compliance is inverse of stiffness
+    Compliance_matrix = np.linalg.inv(K_material)
 
     # End-effector site we wish to control.
     site_name = "attachment_site"
@@ -148,7 +167,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     
-    target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
@@ -235,9 +254,17 @@ def main() -> None:
                 contact_stable_time += dt
                 if contact_stable_time >= contact_stable_duration:
                     circle_drawing = True
+                    force_feedback = False
                     circle_start_time = data.time
                     print("Starting circle drawing!")
                     logging.info("Starting circle drawing!")
+                    # impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
+                    # impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
+                    # damping_ratio = 1.0
+                    # damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
+                    # damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
+                    # Kp = np.concatenate([impedance_pos, impedance_ori], axis=0)
+                    # Kd = np.concatenate([damping_pos, damping_ori], axis=0)
             elif F_ext_phi <= contact_threshold:
                 contact_stable_time = 0
 
@@ -326,23 +353,12 @@ def main() -> None:
                 N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
                 tau_ctrl_v = N2 @ (Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids])
                 logging.info(f"Time: {elapsed_time:.3f}, tau_ctrl_v: {tau_ctrl_v}")
-                # # find null space J_null
-                # _, s, Vt = np.linalg.svd(jac_1)
-                # rank = np.sum(s > 1e-10)
-                # J_null = Vt[rank:, :]
-                # J_v = J_null @ N2.T
 
                 #---------------------------------------------------
                 # Motion Space
                 #----------------------------------------------------
                 # Compute the motion-space inertia matrix for x-y plane
-                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-                Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
-                if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
-                    Mxy = np.linalg.inv(Mxy_inv)
-                else:
-                    Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
-
+                # TODO: Mxy which one is correct, can we use tau instead of F
                 twist[:3] = target_pos - data.site(site_id).xpos
                 mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
                 mujoco.mju_negQuat(site_quat_conj, site_quat)
@@ -351,48 +367,41 @@ def main() -> None:
                 x_tilde = twist @ S_v
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
-                # F_ctrl_x = (Mxy @ x_ddot_desired + 
-                #             C_x @ x_dot_desired - 
-                #             K_x @ x_tilde - 
-                #             D_x @ x_dot_tilde)
-                # TODO：task space coriolis matrix in motion space is complicated 
-                # F_ctrl_x = (Mxy @ x_ddot_desired - 
-                #             Kp @ S_v * x_tilde - 
-                #             Kd @ S_v * x_dot_tilde)
-                # logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
+
+                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+                Mx_inv = jac @ M_inv @ jac.T
+                if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+                    Mx = np.linalg.inv(Mx_inv)
+                else:
+                    Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
                 a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
-                # F_ctrl_x = (M_x @ x_ddot_desired + 
-                # C_x @ x_dot_desired - 
-                # K_x @ x_tilde - 
-                # D_x @ x_dot_tilde)
                 
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
                 F_desired_contact = np.array([-10.0, 0, 0])
-                Mx_phi_inv = J_phi @ M_inv @ J_phi.T
-                if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
-                    lambda_phi = np.linalg.inv(Mx_phi_inv)
-                else:
-                    lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
-                C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
-                
-                # computeJointJacobiansTimeVariation
-                pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
-                # J_phi_dot = S_f @ J_dot
-                F_ctrl_constraint = (
-                    F_desired_contact -
-                    lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ctrl_x + tau_ctrl_v) +
-                    lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) 
-                )
-                # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}")
+                # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
+                # λ˙ = Sf† K'J(q)q̇
+                # K' = Sf (Sf^T C Sf)^(-1) Sf^T
+                inner = S_f.T @ Compliance_matrix @ S_f  # Scalar: compliance in force direction
+                K_effective = S_f @ np.linalg.inv(inner) @ S_f.T
+                Sf_pinv = np.linalg.pinv(S_f, rcond=1e-6)
+                lambda_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
+                F_ctrl_constraint = - Kd @ S_f * lambda_dot + Kp @ S_f * (F_desired_contact - F_ext_x)
+                # C' = (I - Pv)C
+                C_prime = (np.eye(6) - S_v @ S_v.T) @ Compliance_matrix
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
-                logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
+                # tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
+                # α = Svαν + C′Sffλ
+                a = C_prime @ S_f @ F_ctrl_constraint + S_v @ a_v
+                tau = jac.T @ Mx @ a
+                # tau = J_motion.T @ F_ctrl_x 
+                # tau = jac.T @ F_ctrl_x
+                ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+                tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
+                # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
                 # Add gravity compensation.
                 if gravity_compensation:

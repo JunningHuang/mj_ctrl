@@ -21,8 +21,7 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 
-# Joint impedance control gains.
-Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+
 
 
 # Gains for the twist computation. These should be between 0 and 1. 0 means no
@@ -110,13 +109,16 @@ def main() -> None:
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
-    impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
+    impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
     Kp = np.concatenate([impedance_pos, impedance_ori], axis=0)
     Kd = np.concatenate([damping_pos, damping_ori], axis=0)
+    # Joint impedance control gains.
+    Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+    Kp_null *= 5
     Kd_null = damping_ratio * 2 * np.sqrt(Kp_null)
 
     # End-effector site we wish to control.
@@ -144,7 +146,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     
-    target_pos = np.array([0.5, 0., 0.45])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
@@ -231,6 +233,7 @@ def main() -> None:
                 contact_stable_time += dt
                 if contact_stable_time >= contact_stable_duration:
                     circle_drawing = True
+                    force_feedback = False
                     circle_start_time = data.time
                     print("Starting circle drawing!")
                     logging.info("Starting circle drawing!")
@@ -366,9 +369,30 @@ def main() -> None:
                 #             K_x @ x_tilde - 
                 #             D_x @ x_dot_tilde)
                 # TODO：Mxy and Cx?? 
-                F_ctrl_x = (Mxy @ x_ddot_desired + 
-                            Kp @ S_v * x_tilde + 
-                            Kd @ S_v * x_dot_tilde)
+                # F_ctrl_x = (Mxy @ x_ddot_desired + 
+                #             Kp @ S_v * x_tilde + 
+                #             Kd @ S_v * x_dot_tilde)
+                # F_ctrl_x = (Mxy @ x_ddot_desired + 
+                #             Kp @ S_v * x_tilde + 
+                #             (Kd * site_vel) @ S_v)
+                # F_ctrl_x = Mx @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids])) @ S_v
+                # # ------------------position control------------------#
+                # # bad result
+                # a_v = Kp @ S_v * x_tilde + Kd @ S_v * (site_vel @ S_v)
+                # F_ctrl_x = Mxy @ a_v
+                # # ------------------------------------------------------#
+                # ------------------verlocity control------------------#
+                # better than position control
+                # # Compute the task-space inertia matrix.
+                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+                Mx_inv = jac @ M_inv @ jac.T
+                if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+                    Mx = np.linalg.inv(Mx_inv)
+                else:
+                    Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+                a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                F_ctrl_x = Mxy @ a_v
+                # ------------------------------------------------------#
                 logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
                 # F_ctrl_x = (M_x @ x_ddot_desired + 
                 # C_x @ x_dot_desired - 
@@ -396,11 +420,18 @@ def main() -> None:
                 )
                 # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}")
+                # -------------------- independent force control ----------------
+                # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
+                # Problem: λ˙ = Sf† K'J(q)q̇
+                # F_ctrl_constraint = - Kd_lambda * lambda_dot + Kp_lambda * (F_desired_contact - F_lambda)
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
                 tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
-                logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
+                # tau = J_motion.T @ F_ctrl_x 
+                # tau = jac.T @ F_ctrl_x
+                # tau += tau_ctrl_v
+                # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
                 # Add gravity compensation.
                 if gravity_compensation:
