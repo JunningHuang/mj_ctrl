@@ -93,6 +93,7 @@ def check_world_ee_contact_force(data, model):
         contact_rot = contact.frame.reshape(3, 3) # from local to world
         # TODO: can I get world frame moment like this?
         contact_force_world[:3] = contact_rot @ contact_force_local[:3]
+        # TODO: p cross product R @ f
         contact_force_world[3:] = contact_rot @ contact_force_local[3:]
     return contact_force_world
 
@@ -103,7 +104,7 @@ def main() -> None:
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
-    pino_model = pino.buildModelFromMJCF(r"C:\wkspace\mj_ctrl\kuka_iiwa_14\iiwa14.xml")
+    pino_model = pino.buildModelFromMJCF(r"E:\Darmstadt\master\master thesis\wkspace\kuka_iiwa_14\iiwa14.xml")
     pino_data = pino_model.createData()
 
     model.opt.timestep = dt
@@ -362,6 +363,7 @@ def main() -> None:
                 mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
                 mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
                 x_tilde = twist @ S_v
+                # TODO: is this end effector
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
                 # F_ctrl_x = (Mxy @ x_ddot_desired + 
