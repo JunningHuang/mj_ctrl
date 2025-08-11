@@ -21,9 +21,16 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 
+
+# Cartesian impedance control gains.
+impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
+impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
+
 # Joint impedance control gains.
 Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
 
+# Damping ratio for both Cartesian and joint impedance control.
+damping_ratio = 1.0
 
 # Gains for the twist computation. These should be between 0 and 1. 0 means no
 # movement, 1 means move the end-effector to the target in one integration step.
@@ -94,7 +101,6 @@ def check_world_ee_contact_force(data, model):
         contact_rot = contact.frame.reshape(3, 3) # from local to world
         # TODO: can I get world frame moment like this?
         contact_force_world[:3] = contact_rot @ contact_force_local[:3]
-        # TODO: p cross product R @ f
         contact_force_world[3:] = contact_rot @ contact_force_local[3:]
     return contact_force_world
 
@@ -105,14 +111,11 @@ def main() -> None:
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
-    pino_model = pino.buildModelFromMJCF(r"E:\Darmstadt\master\master thesis\wkspace\kuka_iiwa_14\iiwa14.xml")
+    pino_model = pino.buildModelFromMJCF(r"C:\wkspace\mj_ctrl\kuka_iiwa_14\iiwa14.xml")
     pino_data = pino_model.createData()
 
     model.opt.timestep = dt
-    # Following parameters are different during circle-drawing and moving-to-table phrases
-    damping_ratio = 1.0
-    impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
-    impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
+
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -235,13 +238,6 @@ def main() -> None:
                     circle_start_time = data.time
                     print("Starting circle drawing!")
                     logging.info("Starting circle drawing!")
-                    # impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
-                    # impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
-                    # damping_ratio = 1.0
-                    # damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
-                    # damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
-                    # Kp = np.concatenate([impedance_pos, impedance_ori], axis=0)
-                    # Kd = np.concatenate([damping_pos, damping_ori], axis=0)
             elif F_ext_phi <= contact_threshold:
                 contact_stable_time = 0
 
@@ -340,19 +336,12 @@ def main() -> None:
                 # Motion Space
                 #----------------------------------------------------
                 # Compute the motion-space inertia matrix for x-y plane
-                # TODO: Mxy which one is correct, can we use tau instead of F
                 mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
                 Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
                 if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
                     Mxy = np.linalg.inv(Mxy_inv)
                 else:
                     Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
-                # Mx_inv = jac @ M_inv @ jac.T
-                # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
-                #     Mx = np.linalg.inv(Mx_inv)
-                # else:
-                #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
-                # Mxy = S_v.T @ Mx @ S_v
 
                 twist[:3] = target_pos - data.site(site_id).xpos
                 mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
@@ -360,18 +349,18 @@ def main() -> None:
                 mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
                 mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
                 x_tilde = twist @ S_v
-                # TODO: is this end effector
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
                 # F_ctrl_x = (Mxy @ x_ddot_desired + 
                 #             C_x @ x_dot_desired - 
                 #             K_x @ x_tilde - 
                 #             D_x @ x_dot_tilde)
-                # TODO：Mxy and Cx?? 
-                F_ctrl_x = (Mxy @ x_ddot_desired + 
-                            Kp @ S_v * x_tilde + 
-                            Kd @ S_v * x_dot_tilde)
-                logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
+                # TODO：task space coriolis matrix in motion space is complicated 
+                # F_ctrl_x = (Mxy @ x_ddot_desired - 
+                #             Kp @ S_v * x_tilde - 
+                #             Kd @ S_v * x_dot_tilde)
+                # logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
+                a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
                 # F_ctrl_x = (M_x @ x_ddot_desired + 
                 # C_x @ x_dot_desired - 
                 # K_x @ x_tilde - 
@@ -380,13 +369,14 @@ def main() -> None:
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
+                F_desired_contact = np.array([-10.0, 0, 0])
                 Mx_phi_inv = J_phi @ M_inv @ J_phi.T
                 if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
                     lambda_phi = np.linalg.inv(Mx_phi_inv)
                 else:
                     lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
                 C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
-                F_desired_contact = np.array([-10.0, 0, 0])
+                
                 # computeJointJacobiansTimeVariation
                 pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
