@@ -347,8 +347,6 @@ def main() -> None:
         legends = [f"Joint Torque {axs[i]}"]
         plt.legend(legends)
 
-    plt.show()
-
     # ------------------------------------
     # Plot end effector
     # -----------------------------------

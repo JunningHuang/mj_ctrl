@@ -117,8 +117,10 @@ def main() -> None:
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
-    impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
+    # impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
+    # impedance_ori = np.asarray([250.0, 250.0, 250.0])  # [Nm/rad]
+    impedance_pos = np.asarray([1000.0, 1000.0, 1000.0])  # [N/m]
+    impedance_ori = np.asarray([500.0, 500.0, 500.0])  # [Nm/rad]
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -129,7 +131,8 @@ def main() -> None:
     # Kp_null *= 5
     Kd_null = damping_ratio * 2 * np.sqrt(Kp_null)
 
-    k_normal = 2500
+    k_normal = 8000
+    # good ones: 5000, 8000
     K_material = np.diag([
         k_normal * 0.1,   # x tangential
         k_normal * 0.1,   # y tangential  
@@ -220,6 +223,9 @@ def main() -> None:
     tau_forces = []
     taus = []
 
+    ee_positions = []
+    target_positions = []
+
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
     S_f = np.zeros((6, 3)) 
     S_f[2, 0] = 1
@@ -288,6 +294,9 @@ def main() -> None:
                     # Circle completed, stop drawing
                     circle_drawing = False
                     print("Circle drawing completed!")
+
+            ee_positions.append(data.site(site_id).xpos.copy())
+            target_positions.append(target_pos.copy())
             #-----------------------------------------------------------------------
             # Position Control
             # if there is no contact, use baseline algo to move the ee to surface
@@ -393,14 +402,11 @@ def main() -> None:
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                # tau = J_phi.T @ F_ctrl_constraint + J_motion.T @ F_ctrl_x + tau_ctrl_v
                 # α = Svαν + C′Sffλ
                 a = C_prime @ S_f @ F_ctrl_constraint + S_v @ a_v
                 tau = jac.T @ Mx @ a
-                # tau = J_motion.T @ F_ctrl_x 
-                # tau = jac.T @ F_ctrl_x
-                ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
-                tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
+                # ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+                # tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
                 # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
                 # Add gravity compensation.
@@ -446,7 +452,13 @@ def main() -> None:
                     force_errors.append(force_error)
                     desired_forces.append(desired_force)
                     tau_forces.append(tau_force)
-
+            else:
+                force_error = desired_force - current_contact_force[:3]
+                tau_force = np.zeros(model.nv)
+                contact_forces.append(current_contact_force[:3])
+                force_errors.append(force_error)
+                desired_forces.append(desired_force)
+                tau_forces.append(tau_force)
             taus.append(tau)
 
             # # Print out the position of the table.
@@ -479,7 +491,7 @@ def main() -> None:
         
     import matplotlib.pyplot as plt
     
-    if force_feedback:
+    if True:
         contact_forces = np.array(contact_forces)
         desired_forces = np.array(desired_forces)
         force_errors = np.array(force_errors)
@@ -514,6 +526,26 @@ def main() -> None:
         legends = [f"Joint Torque {axs[i]}"]
         plt.legend(legends)
 
+    # ------------------------------------
+    # Plot end effector
+    # -----------------------------------
+    ee_positions = np.array(ee_positions)
+    target_positions = np.array(target_positions)
+    time_steps = np.arange(len(ee_positions)) * dt  # or use your timestamps array
+    # Create figure with 3 subplots
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
+    # Plot X, Y, Z in separate subplots
+    axes_labels = ['X', 'Y', 'Z']
+    for i in range(3):
+        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
+        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
+        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
+    # Add x-label to bottom subplot
+    axes[2].set_xlabel('Time (s)')
+    plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
