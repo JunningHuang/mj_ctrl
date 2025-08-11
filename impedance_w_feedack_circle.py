@@ -26,8 +26,8 @@ logging.basicConfig(
 )
 
 # Cartesian impedance control gains.
-impedance_pos = np.asarray([100.0, 100.0, 100.0])  # [N/m]
-impedance_ori = np.asarray([50.0, 50.0, 50.0])  # [Nm/rad]
+impedance_pos = np.asarray([1000.0, 1000.0, 1000.0])  # [N/m]
+impedance_ori = np.asarray([500.0, 500.0, 500.0])  # [Nm/rad]
 
 # Joint impedance control gains.
 Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
@@ -232,6 +232,7 @@ def main() -> None:
             # Add joint task in nullspace.
             # TODO: inverse kinematics to track q0 over time, so ee orientation can't be kept
             Jbar = M_inv @ jac.T @ Mx
+            # TODO: here is actually assumed that desired qvel is 0, do we need to track?
             ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
             tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
 
