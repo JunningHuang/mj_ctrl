@@ -121,7 +121,7 @@ def main() -> None:
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi
+    angular_speed = np.pi / 4
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
