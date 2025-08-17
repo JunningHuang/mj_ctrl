@@ -167,6 +167,12 @@ def main() -> None:
     key_id = model.key(key_name).id
     q0 = model.key(key_name).qpos
 
+    # make friction bwtween ee and table as 0
+    # geom_id_friction = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "board")
+    # model.geom_friction[geom_id_friction] = [0.0, 0.0, 0.0]
+    # geom_id_friction = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "attachment_collision")
+    # model.geom_friction[geom_id_friction][0] = 0.9
+
     
     target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., -1.0, 0., 0.])
@@ -405,10 +411,10 @@ def main() -> None:
                 # gamma_e = Mx @ a + current_contact_force
                 gamma_e = Mx @ a
                 tau = jac.T @ gamma_e
-
+                # ----- null space is causing a lot of trouble -------
                 # ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
                 # tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
-                # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
+                # -----------------------------------------------------------------------
 
                 # Add gravity compensation.
                 if gravity_compensation:
