@@ -42,7 +42,7 @@ gravity_compensation: bool = True
 # Simulation timestep in seconds.
 dt: float = 0.002
 
-def jac_dynamically_consistent_inv(jac, M_inv):
+def dynamically_consistent_inv(jac, M_inv):
     """
     Compute dynamically consistent pseudoinverse
     J^{M+} = M^{-1} J^T (J M^{-1} J^T)^{-1}
@@ -108,11 +108,11 @@ def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
 
     # Load the model and data.
-    xml_path = "kuka_iiwa_14/scene_notarget.xml"
+    xml_path = "kuka_iiwa_14/table_cylinder.xml"
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
-    # pino_model = pino.buildModelFromMJCF(r"C:\wkspace\mj_ctrl\kuka_iiwa_14\iiwa14.xml")
-    # pino_data = pino_model.createData()
+    pino_model = pino.buildModelFromMJCF("./kuka_iiwa_14/iiwa14.xml")
+    pino_data = pino_model.createData()
 
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
@@ -126,10 +126,9 @@ def main() -> None:
     Kd = np.concatenate([damping_pos, damping_ori], axis=0)
     # Joint impedance control gains.
     Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
-    # Kp_null *= 5
     Kd_null = damping_ratio * 2 * np.sqrt(Kp_null)
 
-    k_normal = 2000
+    k_normal = 5000
     # good ones: 5000, 8000
     K_material = np.diag([
         k_normal * 0.1,   # x tangential
@@ -167,15 +166,9 @@ def main() -> None:
     key_id = model.key(key_name).id
     q0 = model.key(key_name).qpos
 
-    # make friction bwtween ee and table as 0
-    # geom_id_friction = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "board")
-    # model.geom_friction[geom_id_friction] = [0.0, 0.0, 0.0]
-    # geom_id_friction = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "attachment_collision")
-    # model.geom_friction[geom_id_friction][0] = 0.9
-
     
     target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
-    target_quat = np.array([0., -1.0, 0., 0.])
+    target_quat = np.array([0., 1., 0., 0.])
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
 
@@ -190,11 +183,11 @@ def main() -> None:
     circle_radius = 0.1  # 10cm radius
     circle_drawing = False
     circle_start_time = 0
-    circle_duration = 10.0  # 10 seconds to complete one circle
+    circle_duration = 10.0  # 10 seconds draw circles, after 10s it stops
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi / 4
+    angular_speed = np.pi
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -231,14 +224,19 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_f = np.zeros((6, 3)) 
+    S_f = np.zeros((6, 1)) 
     S_f[2, 0] = 1
-    S_f[3, 1] = 1
-    S_f[4, 2] = 1
-    S_v = np.zeros((6, 3))
+    S_v = np.zeros((6, 5))
     S_v[0, 0] = 1
     S_v[1, 1] = 1
-    S_v[5, 2] = 1
+    S_v[3, 2] = 1
+    S_v[4, 3] = 1
+    S_v[5, 4] = 1
+
+    # check phi_ddot if it's zero
+    phi_vel_history = []
+    ee_phis = []
+
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
@@ -256,12 +254,8 @@ def main() -> None:
         while viewer.is_running():
             step_start = time.time()
             current_contact_force = check_world_ee_contact_force(data, model)
-            # z axis
             F_ext_z = current_contact_force[2]
-            # constraint space force
             F_ext_phi = current_contact_force @ S_f
-            # F_ext_phi = np.array([current_contact_force[2], 0.0, 0.0])
-            # motion space force
             F_ext_x = current_contact_force @ S_v
             F_ext_v = None # no external contact on the arm and elbows
             # Check for stable contact to start drawing
@@ -303,7 +297,7 @@ def main() -> None:
                     # Circle completed, stop drawing
                     circle_drawing = False
                     print("Circle drawing completed!")
-
+            
             ee_positions.append(data.site(site_id).xpos.copy())
             target_positions.append(target_pos.copy())
             #-----------------------------------------------------------------------
@@ -347,75 +341,168 @@ def main() -> None:
             # Hybrid control for Force Control
             #--------------------------------------------------------
             if circle_drawing:
+                integral_force_error = 0
                 # ------------------------------------------------------
                 # Jacobians
                 # ------------------------------------------------------
                 mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
                 logging.info(f"Time: {elapsed_time:.3f}, jac: {jac}")
-                # abs(elapsed_time - 0.5) < 1e-6
+                # jac 
+                # J_phi = A @ jac
+                J_phi = S_f.T @ jac
+                J_motion = S_v.T @ jac
+                jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
+                # according to paper equation (9), only null space Jacobian needs to be derived
+                logging.info(f"Time: {elapsed_time:.3f}, J_phi: {J_phi}, J_motion: {J_motion}")
+
+                #----------------------------------------------------
+                # Null Space torque
+                #----------------------------------------------------
+                # Compute the task-space inertia matrix.
+                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+                # dynamically consistent pseudoinverse
+                jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
+                N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
+                tau_ctrl_v = N2 @ (Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids])
+                logging.info(f"Time: {elapsed_time:.3f}, tau_ctrl_v: {tau_ctrl_v}")
+                # # find null space J_null
+                # _, s, Vt = np.linalg.svd(jac_1)
+                # rank = np.sum(s > 1e-10)
+                # J_null = Vt[rank:, :]
+                # J_v = J_null @ N2.T
 
                 #---------------------------------------------------
                 # Motion Space
                 #----------------------------------------------------
+                # Compute the motion-space inertia matrix for x-y plane
+                # TODO: Mxy which one is correct, can we use tau instead of F
+                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+                Mxy_inv = J_motion @ M_inv @ J_motion.T  # Now this will be 2x2
+                if abs(np.linalg.det(Mxy_inv)) >= 1e-2:
+                    Mxy = np.linalg.inv(Mxy_inv)
+                else:
+                    Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
+                # Mx_inv = jac @ M_inv @ jac.T
+                # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+                #     Mx = np.linalg.inv(Mx_inv)
+                # else:
+                #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+                # Mxy = S_v.T @ Mx @ S_v
+
                 twist[:3] = target_pos - data.site(site_id).xpos
                 mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
                 mujoco.mju_negQuat(site_quat_conj, site_quat)
                 mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
                 mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
                 x_tilde = twist @ S_v
+                # TODO: is this end effector
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
-
-                mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
-                Mx_inv = jac @ M_inv @ jac.T
-                if abs(np.linalg.det(Mx_inv)) >= 1e-2:
-                    Mx = np.linalg.inv(Mx_inv)
-                else:
-                    Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
-                a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                # check formula 13
+                phi_vel_history.append(J_phi @ data.qvel.copy())
+                ee_phi = np.zeros(6)
+                ee_phi[:3] = data.site(site_id).xpos
+                mujoco.mju_quat2Vel(ee_phi[3:], site_quat_conj, 1.0)
+                ee_phis.append(ee_phi @ S_f)
+                # F_ctrl_x = (Mxy @ x_ddot_desired + 
+                #             C_x @ x_dot_desired - 
+                #             K_x @ x_tilde - 
+                #             D_x @ x_dot_tilde)
+                # TODO：Mxy and Cx?? 
+                # -------- Hybrid Force-Impedance Control -------#
+                # F_ctrl_x = (Mxy @ x_ddot_desired + 
+                #             Kp @ S_v * x_tilde + 
+                #             Kd @ S_v * x_dot_tilde)
+                # tau_ctrl_x = J_motion.T @ F_ctrl_x 
+                # --------- Cartesian-space PD control with selection matrix ---#
+                # F_ctrl_x = Mx @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids])) @ S_v
+                # tau_ctrl_x = J_motion.T @ F_ctrl_x 
+                # # ------------------position control------------------#
+                # # bad result
+                # a_v = Kp @ S_v * x_tilde + Kd @ S_v * (site_vel @ S_v)
+                # F_ctrl_x = Mxy @ a_v
+                # # ------------------------------------------------------#
+                # -----Cartesian-space PD control law for acceleration tracking------#
+                # perfect position tracking
+                # Compute the task-space inertia matrix.
+                # mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
+                # Mx_inv = jac @ M_inv @ jac.T
+                # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+                #     Mx = np.linalg.inv(Mx_inv)
+                # else:
+                #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+                    
+                # a_v = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                # F_ctrl_x = Mx @ (S_v @ a_v)
+                # tau_ctrl_x = jac.T @ F_ctrl_x 
+                # ------Cartesian-space PD control law for acceleration tracking with motion space inertia ------
+                a_v = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                F_ctrl_x = Mxy @ a_v
+                tau_ctrl_x = J_motion.T @ F_ctrl_x 
+                # ------------------------------------------------------#
+                logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
+                # F_ctrl_x = (M_x @ x_ddot_desired + 
+                # C_x @ x_dot_desired - 
+                # K_x @ x_tilde - 
+                # D_x @ x_dot_tilde)
                 
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
-                F_desired_contact = np.array([10.0, 0.0, 0.0])
-                # fλ = λ¨d + KD(λ˙ d − λ˙ ) + KP(λd − λ), (9.81)
-                # ------ F_dot ------
-                # λ˙ = Sf† K'J(q)q̇
-                # K' = Sf (Sf^T C Sf)^(-1) Sf^T
+                Mx_phi_inv = J_phi @ M_inv @ J_phi.T
+                if abs(np.linalg.det(Mx_phi_inv)) >= 1e-2:
+                    lambda_phi = np.linalg.inv(Mx_phi_inv)
+                else:
+                    lambda_phi = np.linalg.pinv(Mx_phi_inv, rcond=1e-2)
+                C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel) 
+                # F_desired_contact = np.array([-10.0, 0, 0])
+                F_desired_contact = np.array([-10.0])
+                # computeJointJacobiansTimeVariation
+                pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
+                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
+                # J_phi_dot = S_f @ J_dot
+                # tau_ctrl_x = np.zeros(7)
+                # tau_ctrl_v = np.zeros(7)
+                # F_ext_x = np.zeros(3)
+                # -lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
+                # compensation = (
+                #     1 * (-lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x)) + 
+                #     0 * (lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x))
+                # )
+                # F_ctrl_constraint = (
+                #     F_desired_contact +
+                #     0 * compensation
+                # )
+                # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                # --------------------- PI term -------------------------------
+                # F_ctrl_constraint = F_desired_contact  
+                # F_PI = -k_P(F_ext_Φ˙ - F_des(t)) - k_I ∫(F_ext_Φ˙ - F_des(t)) dt
+                # f_error = - F_ext_phi - F_desired_contact
+                # integral_force_error += f_error * dt
+                # Kp_f = 0.1 * np.ones(3)
+                # Ki_f = 0.1 * np.ones(3)
+                # pi_term = - Kp_f * force_error - Ki_f * integral_force_error
+                # F_ctrl_constraint += pi_term
+                # tau_ctrl_phi = J_phi.T @ F_ctrl_constraint
+                # logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}")
+                # -------------------- PD force control ----------------
+                # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
+                # Problem: λ˙ = Sf† K'J(q)q̇
                 inner = S_f.T @ Compliance_matrix @ S_f  # Scalar: compliance in force direction
                 K_effective = S_f @ np.linalg.inv(inner) @ S_f.T
                 Sf_pinv = np.linalg.pinv(S_f, rcond=1e-6)
                 F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
-                Kd_force = np.diag([0.5, 0.1, 0.1])
-                Kp_force = np.diag([0.05, 0.01, 0.01])
+                Kd_force = np.diag([0.5])
+                Kp_force = np.diag([0.05])
                 F_ctrl_constraint = - Kd_force @ F_dot + Kp_force @ (F_desired_contact - F_ext_phi)
-                # F_ctrl_constraint = - Kd @ S_f * F_dot + Kp @ S_f * (F_desired_contact - F_ext_phi)
-                # C' = (I - Pv)C # achieves desired force without C'
-                # C_prime = (np.eye(6) - S_v @ S_v.T) @ Compliance_matrix
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                # α = Svαν + C′Sffλ
-                a = S_f @ F_ctrl_constraint + S_v @ a_v
-                # good position tracking
-                # a = S_v @ a_v
-                # a = C_prime @ S_f @ F_ctrl_constraint
-                # --------- perfect force control -------
-                # a = S_f @ F_ctrl_constraint
-                # ----------------------------------------
-                # γe = Be(q)α + ne(q, q˙) + he, tau = jac @ ye
-                # he = S_f @ F_ext_phi
-                jac_inv = M_inv @ jac.T @ Mx
-                ne = jac_inv.T @ data.qfrc_bias[dof_ids]
-                # gamma_e = Mx @ a + he + ne 
-                # gamma_e = Mx @ a + current_contact_force
-                # --------- he is causing trouble ------
-                gamma_e = Mx @ a
-                tau = jac.T @ gamma_e
-                # ----- null space is causing a lot of trouble -------
-                # ddq = Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
-                # tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
-                # -----------------------------------------------------------------------
+                tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+                # ----- test only motion space control ------
+                # tau = tau_ctrl_x
+                # tau += tau_ctrl_v
+                # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
                 # Add gravity compensation.
                 if gravity_compensation:
@@ -460,7 +547,7 @@ def main() -> None:
                     force_errors.append(force_error)
                     desired_forces.append(desired_force)
                     tau_forces.append(tau_force)
-            else:
+            else: 
                 force_error = desired_force - current_contact_force[:3]
                 tau_force = np.zeros(model.nv)
                 contact_forces.append(current_contact_force[:3])
@@ -514,25 +601,33 @@ def main() -> None:
             plt.xlabel("Time Step")
             legends = [f"Contact Force {axs[i]}", f"Desired Force {axs[i]}", f"Force Error {axs[i]}"]
             plt.legend(legends)
+
+        # fig.suptitle(f"Contact Force Tracking (Ki = {Ki_f}, Kp = {Kp_f}")
+        # fig.savefig(f"plots/contact_force_tracking_k_{Ki_f}_wonull.png")
+        
+        fig.suptitle(f"Contact Force Tracking")
+        fig.savefig(f"plots/contact_force_tracking.png")
+        plt.show()
+        plt.close(fig)
             
-        fig = plt.figure(figsize=(10, 5))
-        axs = [f"joint{i}" for i in range(1, 8)]
-        for i in range(7):
-            plt.subplot(7, 1, i+1)
-            plt.plot(np.arange(len(tau_forces)) * dt, tau_forces[:, i])
-            plt.xlabel("Time Step")
-            legends = [f"Joint Torque {axs[i]}"]
-            plt.legend(legends)
+        # fig = plt.figure(figsize=(10, 5))
+        # axs = [f"joint{i}" for i in range(1, 8)]
+        # for i in range(7):
+        #     plt.subplot(7, 1, i+1)
+        #     plt.plot(np.arange(len(tau_forces)) * dt, tau_forces[:, i])
+        #     plt.xlabel("Time Step")
+        #     legends = [f"Joint Torque {axs[i]}"]
+        #     plt.legend(legends)
     
-    fig = plt.figure(figsize=(10, 5))
-    axs = [f"joint{i}" for i in range(1, 8)]
-    taus = np.array(taus)
-    for i in range(7):
-        plt.subplot(7, 1, i+1)
-        plt.plot(np.arange(len(taus)) * dt, taus[:, i])
-        plt.xlabel("Time Step")
-        legends = [f"Joint Torque {axs[i]}"]
-        plt.legend(legends)
+    # fig = plt.figure(figsize=(10, 5))
+    # axs = [f"joint{i}" for i in range(1, 8)]
+    # taus = np.array(taus)
+    # for i in range(7):
+    #     plt.subplot(7, 1, i+1)
+    #     plt.plot(np.arange(len(taus)) * dt, taus[:, i])
+    #     plt.xlabel("Time Step")
+    #     legends = [f"Joint Torque {axs[i]}"]
+    #     plt.legend(legends)
 
     # ------------------------------------
     # Plot end effector
@@ -554,7 +649,37 @@ def main() -> None:
     # Add x-label to bottom subplot
     axes[2].set_xlabel('Time (s)')
     plt.tight_layout()
+    fig.savefig("plots/ee_position_tracking.png")
     plt.show()
+    plt.close(fig)
+
+    # check formula 13
+    # phi_vel_history = np.array(phi_vel_history)
+    # ee_phis = np.array(ee_phis)
+    # time_steps = np.arange(len(phi_vel_history)) * dt
+
+    # fig, axes = plt.subplots(3, 1, figsize=(8, 6))
+    # labels = ["vz", "wx", "wy"]
+    # for i in range(3):
+    #     axes[i].plot(time_steps, phi_vel_history[:, i], linewidth=2)
+    #     axes[i].set_ylabel(f"{labels[i]} Value")
+    #     axes[i].grid(True, alpha=0.3)
+
+    # axes[2].set_xlabel("Time (s)")
+    # fig.suptitle("Evolution of J_phi @ qvel")
+    # plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    # fig, axes = plt.subplots(3, 1, figsize=(8, 6))
+    # labels = ["z", "rotation_x", "rotation_y"]
+    # for i in range(3):
+    #     axes[i].plot(time_steps, ee_phis[:, i], linewidth=2)
+    #     axes[i].set_ylabel(f"{labels[i]} Value")
+    #     axes[i].grid(True, alpha=0.3)
+
+    # axes[2].set_xlabel("Time (s)")
+    # fig.suptitle("Evolution of ee phi")
+    # plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # plt.show()
 
 if __name__ == "__main__":
     main()

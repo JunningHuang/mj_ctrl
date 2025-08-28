@@ -117,8 +117,8 @@ def main() -> None:
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2  # [N/m]
-    impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2 # [Nm/rad]
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])  # [N/m]
+    impedance_ori = np.asarray([250.0, 250.0, 250.0]) # [Nm/rad]
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -206,6 +206,9 @@ def main() -> None:
     tau_forces = []
     taus = []
 
+    ee_positions = []
+    target_positions = []
+
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
     S_f = np.zeros((6, 3)) 
     S_f[2, 0] = 1
@@ -215,6 +218,11 @@ def main() -> None:
     S_v[0, 0] = 1
     S_v[1, 1] = 1
     S_v[5, 2] = 1
+
+    # check phi_ddot if it's zero
+    phi_vel_history = []
+    ee_phis = []
+
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
@@ -275,6 +283,9 @@ def main() -> None:
                     # Circle completed, stop drawing
                     circle_drawing = False
                     print("Circle drawing completed!")
+            
+            ee_positions.append(data.site(site_id).xpos.copy())
+            target_positions.append(target_pos.copy())
             #-----------------------------------------------------------------------
             # Position Control
             # if there is no contact, use baseline algo to move the ee to surface
@@ -316,6 +327,7 @@ def main() -> None:
             # Hybrid control for Force Control
             #--------------------------------------------------------
             if circle_drawing:
+                integral_force_error = 0
                 # ------------------------------------------------------
                 # Jacobians
                 # ------------------------------------------------------
@@ -329,7 +341,6 @@ def main() -> None:
                 # according to paper equation (9), only null space Jacobian needs to be derived
                 logging.info(f"Time: {elapsed_time:.3f}, J_phi: {J_phi}, J_motion: {J_motion}")
 
-                
                 #----------------------------------------------------
                 # Null Space torque
                 #----------------------------------------------------
@@ -373,6 +384,12 @@ def main() -> None:
                 # TODO: is this end effector
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
+                # check formula 13
+                phi_vel_history.append(J_phi @ data.qvel.copy())
+                ee_phi = np.zeros(6)
+                ee_phi[:3] = data.site(site_id).xpos
+                mujoco.mju_quat2Vel(ee_phi[3:], site_quat_conj, 1.0)
+                ee_phis.append(ee_phi @ S_f)
                 # F_ctrl_x = (Mxy @ x_ddot_desired + 
                 #             C_x @ x_dot_desired - 
                 #             K_x @ x_tilde - 
@@ -392,7 +409,7 @@ def main() -> None:
                 # F_ctrl_x = Mxy @ a_v
                 # # ------------------------------------------------------#
                 # -----Cartesian-space PD control law for acceleration tracking------#
-                # better than position control
+                # perfect position tracking
                 # Compute the task-space inertia matrix.
                 mujoco.mj_solveM(model, data, M_inv, np.eye(model.nv))
                 Mx_inv = jac @ M_inv @ jac.T
@@ -400,6 +417,10 @@ def main() -> None:
                     Mx = np.linalg.inv(Mx_inv)
                 else:
                     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+                a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                F_ctrl_x = Mx @ (S_v @ a_v)
+                tau_ctrl_x = jac.T @ F_ctrl_x 
+                # ------Cartesian-space PD control law for acceleration tracking with motion space inertia ------
                 a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
                 F_ctrl_x = Mxy @ a_v
                 tau_ctrl_x = J_motion.T @ F_ctrl_x 
@@ -424,11 +445,23 @@ def main() -> None:
                 pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
                 # J_phi_dot = S_f @ J_dot
-                F_ctrl_constraint = (
-                    F_desired_contact -
-                    lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) +
-                    lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) 
-                )
+                # tau_ctrl_x = np.zeros(7)
+                # tau_ctrl_v = np.zeros(7)
+                # F_ext_x = np.zeros(3)
+                # F_ctrl_constraint = (
+                #     F_desired_contact -
+                #     lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) +
+                #     lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x) 
+                # )
+                F_ctrl_constraint = F_desired_contact
+                # F_PI = -k_P(F_ext_Φ˙ - F_des(t)) - k_I ∫(F_ext_Φ˙ - F_des(t)) dt
+                f_error = - F_ext_phi - F_desired_contact
+                integral_force_error += f_error * dt
+                Kp_f = 0.1 * np.ones(3)
+                Ki_f = 0.1 * np.ones(3)
+                pi_term = - Kp_f * force_error - Ki_f * integral_force_error
+                # F_ctrl_constraint += pi_term
+                tau_ctrl_phi = J_phi.T @ F_ctrl_constraint
                 # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 logging.info(f"Time: {elapsed_time:.3f}, lambda_phi: {lambda_phi}, F_ext_x: {F_ext_x}")
                 # -------------------- independent force control ----------------
@@ -438,10 +471,10 @@ def main() -> None:
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                # tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
-                # tau = J_motion.T @ F_ctrl_x 
-                tau = tau_ctrl_x
-                tau += tau_ctrl_v
+                tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x
+                # ----- test only motion space control ------
+                # tau = tau_ctrl_x
+                # tau += tau_ctrl_v
                 # logging.info(f"Time: {elapsed_time:.3f}, phi_tau: {J_phi.T @ F_ctrl_constraint}, motion_tau: {J_motion.T @ F_ctrl_x}, null_tau: {tau_ctrl_v}")
 
                 # Add gravity compensation.
@@ -487,7 +520,13 @@ def main() -> None:
                     force_errors.append(force_error)
                     desired_forces.append(desired_force)
                     tau_forces.append(tau_force)
-
+            else: 
+                force_error = desired_force - current_contact_force[:3]
+                tau_force = np.zeros(model.nv)
+                contact_forces.append(current_contact_force[:3])
+                force_errors.append(force_error)
+                desired_forces.append(desired_force)
+                tau_forces.append(tau_force)
             taus.append(tau)
 
             # # Print out the position of the table.
@@ -520,7 +559,7 @@ def main() -> None:
         
     import matplotlib.pyplot as plt
     
-    if force_feedback:
+    if True:
         contact_forces = np.array(contact_forces)
         desired_forces = np.array(desired_forces)
         force_errors = np.array(force_errors)
@@ -535,26 +574,79 @@ def main() -> None:
             plt.xlabel("Time Step")
             legends = [f"Contact Force {axs[i]}", f"Desired Force {axs[i]}", f"Force Error {axs[i]}"]
             plt.legend(legends)
-            
-        fig = plt.figure(figsize=(10, 5))
-        axs = [f"joint{i}" for i in range(1, 8)]
-        for i in range(7):
-            plt.subplot(7, 1, i+1)
-            plt.plot(np.arange(len(tau_forces)) * dt, tau_forces[:, i])
-            plt.xlabel("Time Step")
-            legends = [f"Joint Torque {axs[i]}"]
-            plt.legend(legends)
-    
-    fig = plt.figure(figsize=(10, 5))
-    axs = [f"joint{i}" for i in range(1, 8)]
-    taus = np.array(taus)
-    for i in range(7):
-        plt.subplot(7, 1, i+1)
-        plt.plot(np.arange(len(taus)) * dt, taus[:, i])
-        plt.xlabel("Time Step")
-        legends = [f"Joint Torque {axs[i]}"]
-        plt.legend(legends)
 
+        fig.suptitle(f"Contact Force Tracking (Ki = {Ki_f}, Kp = {Kp_f}")
+        fig.savefig(f"plots/contact_force_tracking_k_{Ki_f}_wonull.png")
+        plt.close(fig)
+            
+        # fig = plt.figure(figsize=(10, 5))
+        # axs = [f"joint{i}" for i in range(1, 8)]
+        # for i in range(7):
+        #     plt.subplot(7, 1, i+1)
+        #     plt.plot(np.arange(len(tau_forces)) * dt, tau_forces[:, i])
+        #     plt.xlabel("Time Step")
+        #     legends = [f"Joint Torque {axs[i]}"]
+        #     plt.legend(legends)
+    
+    # fig = plt.figure(figsize=(10, 5))
+    # axs = [f"joint{i}" for i in range(1, 8)]
+    # taus = np.array(taus)
+    # for i in range(7):
+    #     plt.subplot(7, 1, i+1)
+    #     plt.plot(np.arange(len(taus)) * dt, taus[:, i])
+    #     plt.xlabel("Time Step")
+    #     legends = [f"Joint Torque {axs[i]}"]
+    #     plt.legend(legends)
+
+    # ------------------------------------
+    # Plot end effector
+    # -----------------------------------
+    ee_positions = np.array(ee_positions)
+    target_positions = np.array(target_positions)
+    time_steps = np.arange(len(ee_positions)) * dt  # or use your timestamps array
+    # Create figure with 3 subplots
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
+    # Plot X, Y, Z in separate subplots
+    axes_labels = ['X', 'Y', 'Z']
+    for i in range(3):
+        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
+        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
+        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
+    # Add x-label to bottom subplot
+    axes[2].set_xlabel('Time (s)')
+    plt.tight_layout()
+    fig.savefig("plots/ee_position_tracking.png")
+    plt.close(fig)
+
+    # check formula 13
+    phi_vel_history = np.array(phi_vel_history)
+    ee_phis = np.array(ee_phis)
+    time_steps = np.arange(len(phi_vel_history)) * dt
+
+    fig, axes = plt.subplots(3, 1, figsize=(8, 6))
+    labels = ["vz", "wx", "wy"]
+    for i in range(3):
+        axes[i].plot(time_steps, phi_vel_history[:, i], linewidth=2)
+        axes[i].set_ylabel(f"{labels[i]} Value")
+        axes[i].grid(True, alpha=0.3)
+
+    axes[2].set_xlabel("Time (s)")
+    fig.suptitle("Evolution of J_phi @ qvel")
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    fig, axes = plt.subplots(3, 1, figsize=(8, 6))
+    labels = ["z", "rotation_x", "rotation_y"]
+    for i in range(3):
+        axes[i].plot(time_steps, ee_phis[:, i], linewidth=2)
+        axes[i].set_ylabel(f"{labels[i]} Value")
+        axes[i].grid(True, alpha=0.3)
+
+    axes[2].set_xlabel("Time (s)")
+    fig.suptitle("Evolution of ee phi")
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
 if __name__ == "__main__":
