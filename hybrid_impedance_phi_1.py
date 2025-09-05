@@ -438,7 +438,7 @@ def main() -> None:
                 # ------Cartesian-space PD control law for acceleration tracking with motion space inertia ------
                 a_v = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
                 F_ctrl_x = Mxy @ a_v
-                tau_ctrl_x = J_motion.T @ F_ctrl_x 
+                tau_ctrl_x = J_motion.T @ F_ctrl_x
                 # ------------------------------------------------------#
                 logging.info(f"Time: {elapsed_time:.3f}, F_ctrl_x: {F_ctrl_x}")
                 # F_ctrl_x = (M_x @ x_ddot_desired + 

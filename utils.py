@@ -42,6 +42,7 @@ def format_vector_to_latex(arr, label):
     return f"${label} = \\begin{{bmatrix}} {elements_str} \\end{{bmatrix}}^T$"
 
 def format_matrix_to_latex(matrix_arr: np.ndarray, label: str) -> str:
+
     """
     Formats a 2D NumPy array (matrix) into a LaTeX bmatrix string.
 
@@ -65,3 +66,36 @@ def format_matrix_to_latex(matrix_arr: np.ndarray, label: str) -> str:
     matrix_str = " \\\\ ".join(rows_latex)
 
     return f"${label} = \\begin{{bmatrix}} {matrix_str} \\end{{bmatrix}}$"
+
+def hierarchical_impedance_jacob(jac_list: list, dim):
+    # draw circle: only 2 subspace jac can be defined,
+    # last one - null space, there is no jac, it has to be calculated
+    # if give full M, dynamical consistant inverse can be found - J_inv
+    # M_inv = dynamically_consistent_pinv(J_aug, M)
+    Ns = []
+    I = np.eye(dim)
+    J_aug = np.empty((0, dim))
+    Ns.append(I)
+    for i, jac in enumerate(jac_list):
+        J_aug = np.vstack([J_aug, jac_list[i]])
+        J_aug_inv = np.linalg.pinv(J_aug)
+        N = I - J_aug_inv @ J_aug
+        Ns.append(N)
+    # find null space J_null
+    U, s, Vt = np.linalg.svd(J_aug)
+    rank = np.sum(s > 1e-10)
+    J_null = Vt[rank:, :]
+    jac_list.append(J_null)
+    
+    J_bars = []
+    for N, jac in zip(Ns, jac_list):
+        J_bar = jac @ N.T
+        J_bars.append(J_bar)
+    return Ns, J_bars
+
+# Mx_inv = jac @ M_inv @ jac.T
+# if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+#     Mx = np.linalg.inv(Mx_inv)
+# else:
+#     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+# Mxy = S_v.T @ Mx @ S_v

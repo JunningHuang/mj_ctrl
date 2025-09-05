@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------------------
-# Hybrid Force-Impedance Control for Fast End-Effector Motions
+# Hybrid Force-Impedance Control for Fast End-Effector Motions on cylinder surface
 # ------------------------------------------------------------------------------
 # 
 # ------------------------------------------------------------------------------
@@ -20,9 +20,6 @@ logging.basicConfig(
     format='%(asctime)s - %(message)s',
     datefmt='%H:%M:%S'
 )
-
-
-
 
 # Gains for the twist computation. These should be between 0 and 1. 0 means no
 # movement, 1 means move the end-effector to the target in one integration step.
@@ -54,40 +51,14 @@ def dynamically_consistent_inv(jac, M_inv):
         Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
     return M_inv @ jac.T @ Mx
 
-def hierarchical_impedance_jacob(jac_list: list, dim):
-    # draw circle: only 2 subspace jac can be defined,
-    # last one - null space, there is no jac, it has to be calculated
-    # if give full M, dynamical consistant inverse can be found - J_inv
-    # M_inv = dynamically_consistent_pinv(J_aug, M)
-    Ns = []
-    I = np.eye(dim)
-    J_aug = np.empty((0, dim))
-    Ns.append(I)
-    for i, jac in enumerate(jac_list):
-        J_aug = np.vstack([J_aug, jac_list[i]])
-        J_aug_inv = np.linalg.pinv(J_aug)
-        N = I - J_aug_inv @ J_aug
-        Ns.append(N)
-    # find null space J_null
-    U, s, Vt = np.linalg.svd(J_aug)
-    rank = np.sum(s > 1e-10)
-    J_null = Vt[rank:, :]
-    jac_list.append(J_null)
-    
-    J_bars = []
-    for N, jac in zip(Ns, jac_list):
-        J_bar = jac @ N.T
-        J_bars.append(J_bar)
-    return Ns, J_bars
-
-def check_world_ee_contact_force(data, model):
+def check_world_ee_contact_force(data, model, object_name="board"):
     current_force_world = np.zeros(6)
     if data.ncon > 0:
         # Compute the contact forces.
         contact_force_local = np.zeros(6)
         for i in range(data.ncon):
             contact = data.contact[i]
-            if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+            if contact.geom1 == model.geom(object_name).id or contact.geom2 == model.geom(object_name).id:
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
         contact_rot = contact.frame.reshape(3, 3) # from local to world
@@ -103,6 +74,17 @@ def check_world_ee_contact_force(data, model):
         current_force_world[:3] = force_world
         current_force_world[3:] = moment_world
     return current_force_world
+
+def get_rotation_m(theta):
+    r = np.array([
+        [1, 0, 0],
+        [0, np.cos(-theta), -np.sin(-theta)],
+        [0, np.sin(-theta), np.cos(-theta)]
+    ])
+    R = np.zeros((6, 6))
+    R[0:3, 0:3] = r
+    R[3:6, 3:6] = r
+    return R
 
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
@@ -167,7 +149,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     
-    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.4, 0., 0.6])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
@@ -179,15 +161,15 @@ def main() -> None:
     error_quat = np.zeros(4)
 
     # Circle drawing parameters
-    circle_center = np.array([0.5, 0.0, 0.45])  # Center of circle on table
-    circle_radius = 0.1  # 10cm radius
+    circle_center = np.array([0.4, 0.0, 0.45])  # Center of circle on table
+    circle_radius = 0.15  # 10cm radius
     circle_drawing = False
     circle_start_time = 0
-    circle_duration = 10.0  # 10 seconds draw circles, after 10s it stops
+    circle_duration = 10.0  # in total 10 seconds to draw circles, after 10s it stops
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi
+    angular_speed = np.pi/4
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -224,14 +206,14 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_f = np.zeros((6, 1)) 
-    S_f[2, 0] = 1
-    S_v = np.zeros((6, 5))
-    S_v[0, 0] = 1
-    S_v[1, 1] = 1
-    S_v[3, 2] = 1
-    S_v[4, 3] = 1
-    S_v[5, 4] = 1
+    S_fc = np.zeros((6, 1)) 
+    S_fc[2, 0] = 1
+    S_vc = np.zeros((6, 5))
+    S_vc[0, 0] = 1
+    S_vc[1, 1] = 1
+    S_vc[3, 2] = 1
+    S_vc[4, 3] = 1
+    S_vc[5, 4] = 1
 
     # check phi_ddot if it's zero
     phi_vel_history = []
@@ -253,11 +235,10 @@ def main() -> None:
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
             step_start = time.time()
-            current_contact_force = check_world_ee_contact_force(data, model)
+            current_contact_force = check_world_ee_contact_force(data, model, object_name="cylinder_geom")
+            # read external forces
             F_ext_z = current_contact_force[2]
-            F_ext_phi = current_contact_force @ S_f
-            F_ext_x = current_contact_force @ S_v
-            F_ext_v = None # no external contact on the arm and elbows
+            
             # Check for stable contact to start drawing
             if F_ext_z > contact_threshold and not circle_drawing:
                 contact_stable_time += dt
@@ -280,19 +261,26 @@ def main() -> None:
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
-                    angle = angular_speed * elapsed_time
+                    # - pi/4 to pi/4
+                    angle = (np.pi/4) * np.sin(angular_speed * elapsed_time)
+                    angle_dot = (np.pi/4) * angular_speed * np.cos(angular_speed * elapsed_time)
+                    angle_ddot = -(np.pi/4) * angular_speed**2 * np.sin(angular_speed * elapsed_time)
                     # x
-                    target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
+                    target_pos[0] = circle_center[0]
                     target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
-                    target_pos[2] = circle_center[2]  # Keep Z at table height
+                    target_pos[2] = circle_center[2] + circle_radius * np.cos(angle)
                     # x_dot
-                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
-                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
-                    x_dot_desired[2] = 0.0
+                    x_dot_desired[0] = 0.0
+                    x_dot_desired[1] = circle_radius * np.cos(angle) * angle_dot
+                    x_dot_desired[2] = -circle_radius * np.sin(angle) * angle_dot
                     # x_ddot
-                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
-                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
-                    x_ddot_desired[2] = 0.0
+                    x_ddot_desired[0] = 0.0
+                    x_ddot_desired[1] = circle_radius * (
+                        -np.sin(angle) * angle_dot**2 + np.cos(angle) * angle_ddot
+                    )
+                    x_ddot_desired[2] = circle_radius * (
+                        -np.cos(angle) * angle_dot**2 - np.sin(angle) * angle_ddot
+                    )
                 else:
                     # Circle completed, stop drawing
                     circle_drawing = False
@@ -342,6 +330,15 @@ def main() -> None:
             #--------------------------------------------------------
             if circle_drawing:
                 integral_force_error = 0
+                Rc = get_rotation_m(angle)
+                S_v = Rc @ S_vc
+                S_f = Rc @ S_fc
+                F_ext_phi = current_contact_force @ S_f
+                F_ext_x = current_contact_force @ S_v
+                F_ext_v = None # no external contact on the arm and elbows
+                q_rot = np.array([np.cos(angle/2), 0, 0, np.sin(angle/2)], dtype=np.float64)
+                q_base = np.array([0., 1., 0., 0.])
+                mujoco.mju_mulQuat(target_quat, q_rot, q_base)
                 # ------------------------------------------------------
                 # Jacobians
                 # ------------------------------------------------------
@@ -349,6 +346,7 @@ def main() -> None:
                 logging.info(f"Time: {elapsed_time:.3f}, jac: {jac}")
                 # jac 
                 # J_phi = A @ jac
+                # TODO: S_fc.T @ jac or S_f?
                 J_phi = S_f.T @ jac
                 J_motion = S_v.T @ jac
                 jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
@@ -365,11 +363,6 @@ def main() -> None:
                 N2 = np.eye(model.nv) - jac_1.T @ jac_1_inv.T
                 tau_ctrl_v = N2 @ (Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids])
                 logging.info(f"Time: {elapsed_time:.3f}, tau_ctrl_v: {tau_ctrl_v}")
-                # # find null space J_null
-                # _, s, Vt = np.linalg.svd(jac_1)
-                # rank = np.sum(s > 1e-10)
-                # J_null = Vt[rank:, :]
-                # J_v = J_null @ N2.T
 
                 #---------------------------------------------------
                 # Motion Space
@@ -382,12 +375,6 @@ def main() -> None:
                     Mxy = np.linalg.inv(Mxy_inv)
                 else:
                     Mxy = np.linalg.pinv(Mxy_inv, rcond=1e-2)
-                # Mx_inv = jac @ M_inv @ jac.T
-                # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
-                #     Mx = np.linalg.inv(Mx_inv)
-                # else:
-                #     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
-                # Mxy = S_v.T @ Mx @ S_v
 
                 twist[:3] = target_pos - data.site(site_id).xpos
                 mujoco.mju_mat2Quat(site_quat, data.site(site_id).xmat)
@@ -395,7 +382,6 @@ def main() -> None:
                 mujoco.mju_mulQuat(error_quat, target_quat, site_quat_conj)
                 mujoco.mju_quat2Vel(twist[3:], error_quat, 1.0)
                 x_tilde = twist @ S_v
-                # TODO: is this end effector
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
                 # check formula 13
@@ -465,14 +451,14 @@ def main() -> None:
                 # tau_ctrl_v = np.zeros(7)
                 # F_ext_x = np.zeros(3)
                 # -lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
-                # compensation = (
-                #     1 * (-lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x)) + 
-                #     0 * (lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x))
-                # )
-                # F_ctrl_constraint = (
-                #     F_desired_contact +
-                #     0 * compensation
-                # )
+                compensation = (
+                    1 * (-lambda_phi @ J_phi @ M_inv @ (tau_ctrl_x)) + 
+                    0 * (lambda_phi @ J_phi @ M_inv @ (J_motion.T @ F_ext_x))
+                )
+                F_ctrl_constraint = (
+                    F_desired_contact +
+                    1 * compensation
+                )
                 # verlociy term: lambda_phi @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 # --------------------- PI term -------------------------------
                 # F_ctrl_constraint = F_desired_contact  
@@ -488,17 +474,18 @@ def main() -> None:
                 # -------------------- PD force control ----------------
                 # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
                 # Problem: λ˙ = Sf† K'J(q)q̇
-                inner = S_f.T @ Compliance_matrix @ S_f  # Scalar: compliance in force direction
-                K_effective = S_f @ np.linalg.inv(inner) @ S_f.T
-                Sf_pinv = np.linalg.pinv(S_f, rcond=1e-6)
-                F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
-                Kd_force = np.diag([0.5])
-                Kp_force = np.diag([0.05])
-                F_ctrl_constraint = - Kd_force @ F_dot + Kp_force @ (F_desired_contact - F_ext_phi)
+                # inner = S_f.T @ Compliance_matrix @ S_f  # Scalar: compliance in force direction
+                # K_effective = S_f @ np.linalg.inv(inner) @ S_f.T
+                # Sf_pinv = np.linalg.pinv(S_f, rcond=1e-6)
+                # F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
+                # Kd_force = np.diag([0.5])
+                # Kp_force = np.diag([0.05])
+                # F_ctrl_constraint = - Kd_force @ F_dot + Kp_force @ (F_desired_contact - F_ext_phi)
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+                # tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+                tau = tau_ctrl_x
                 # ----- test only motion space control ------
                 # tau = tau_ctrl_x
                 # tau += tau_ctrl_v
@@ -513,17 +500,17 @@ def main() -> None:
             if force_feedback:
                 if data.ncon > 0:
                     # Compute the contact forces.
-                    contact_force_local = np.zeros(6)
-                    for i in range(data.ncon):
-                        contact = data.contact[i]
-                        if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
-                            mujoco.mj_contactForce(model, data, i, contact_force_local)
-                            break
-                    contact_pos = contact.pos
-                    contact_rot = contact.frame.reshape(3, 3) # from local to world
-                    contact_force_local = contact_force_local[:3]
-                    contact_force_world = contact_rot @ contact_force_local
-                    force_error = desired_force - contact_force_world
+                    # contact_force_local = np.zeros(6)
+                    # for i in range(data.ncon):
+                    #     contact = data.contact[i]
+                    #     if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+                    #         mujoco.mj_contactForce(model, data, i, contact_force_local)
+                    #         break
+                    # contact_pos = contact.pos
+                    # contact_rot = contact.frame.reshape(3, 3) # from local to world
+                    # contact_force_local = contact_force_local[:3]
+                    # contact_force_world = contact_rot @ contact_force_local
+                    force_error = desired_force - current_contact_force[:3]
                     force = (Kp_force * force_error + Kd_force * (force_error - force_error_prev) / dt)
                     force += desired_force 
                     
@@ -535,7 +522,7 @@ def main() -> None:
                     tau_force = jac.T[:, :3] @ force
                     tau -= tau_force
                     force_error_prev = force_error
-                    contact_forces.append(contact_force_world)
+                    contact_forces.append(current_contact_force[:3])
                     force_errors.append(force_error)
                     desired_forces.append(desired_force)
                     tau_forces.append(tau_force)
