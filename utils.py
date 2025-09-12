@@ -32,7 +32,7 @@ def bruno_motion_space_control_force(x_ddot_desired, x_dot_desired, x_tilde, x_d
                 D_x @ x_dot_tilde)
 
 
-def feedforward_PD(x_acc_desired, x_delta, x_dot_delta, Mx, J, Kp, Kd):
+def feedforward_PD(x_acc_desired, x_delta, x_dot_delta, Kp, Kd):
     """
     Compute the feedforward PD control torque for the end-effector.
     Tracking desired acceleration.
@@ -40,18 +40,18 @@ def feedforward_PD(x_acc_desired, x_delta, x_dot_delta, Mx, J, Kp, Kd):
     # a_v = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
     # F_ctrl_x = Mx_motion @ a_v
     # tau_ctrl_x = J_motion.T @ F_ctrl_x
-    a_v = x_acc_desired + Kp @ x_delta + Kd @ x_dot_delta
+    a_v = x_acc_desired + Kp * x_delta + Kd * x_dot_delta
     return a_v
     
-def PI_term(F_ext, F_desired, dt):
+def PI_term(F_ext, F_desired, dt, integral_force_error):
     """
     F_PI = -k_P(F_ext_Φ˙ - F_des(t)) - k_I ∫(F_ext_Φ˙ - F_des(t)) dt
     """
     f_error = F_ext - F_desired
     integral_force_error += f_error * dt
-    Kp_f = 0.1 * np.ones(3)
-    Ki_f = 0.1 * np.ones(3)
-    return - Kp_f * f_error - Ki_f * integral_force_error
+    Kp_f = 0.8 * np.ones_like(f_error)
+    Ki_f = 0.8 * np.ones_like(f_error)
+    return - Kp_f * f_error - Ki_f * integral_force_error, integral_force_error
 
 def force_dot(S_f, Compliance_matrix, jac, data, dof_ids):
     """
@@ -210,6 +210,35 @@ def hierarchical_impedance_jacob(jac_list: list, dim):
         J_bar = jac @ N.T
         J_bars.append(J_bar)
     return Ns, J_bars
+
+# def PDI_term():
+#     contact_force_local = np.zeros(6)
+#     for i in range(data.ncon):
+#         contact = data.contact[i]
+#         if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+#             mujoco.mj_contactForce(model, data, i, contact_force_local)
+#             break
+#     contact_pos = contact.pos
+#     contact_rot = contact.frame.reshape(3, 3) # from local to world
+#     contact_force_local = contact_force_local[:3]
+#     contact_force_world = contact_rot @ contact_force_local
+#     contact_force_world = contact_force_world[2]
+#     force_error = desired_force - contact_force_world
+#     force = (Kp_force * force_error + Kd_force * (force_error - force_error_prev) / dt)
+#     force += desired_force 
+    
+#     if len(force_errors) > 0:
+#         force_error_sum = np.sum(force_errors, axis=0)
+#         force_error_sum *= dt
+#         force += Ki_force * force_error_sum                      
+    
+#     tau_force = jac.T[:, 2:3] @ force
+#     tau -= tau_force
+#     force_error_prev = force_error
+#     contact_forces.append(contact_force_world)
+#     force_errors.append(force_error)
+#     desired_forces.append(desired_force)
+#     tau_forces.append(tau_force)
 
 # Mx_inv = jac @ M_inv @ jac.T
 # if abs(np.linalg.det(Mx_inv)) >= 1e-2:
