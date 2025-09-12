@@ -129,7 +129,7 @@ def main() -> None:
     # Kp_null *= 5
     Kd_null = damping_ratio * 2 * np.sqrt(Kp_null)
 
-    k_normal = 2000
+    k_normal = 8000
     # good ones: 5000, 8000
     K_material = np.diag([
         k_normal * 0.1,   # x tangential
@@ -231,14 +231,14 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_f = np.zeros((6, 3)) 
+    S_f = np.zeros((6, 1)) 
     S_f[2, 0] = 1
-    S_f[3, 1] = 1
-    S_f[4, 2] = 1
-    S_v = np.zeros((6, 3))
+    S_v = np.zeros((6, 5))
     S_v[0, 0] = 1
     S_v[1, 1] = 1
-    S_v[5, 2] = 1
+    S_v[3, 2] = 1
+    S_v[4, 3] = 1
+    S_v[5, 4] = 1
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
@@ -372,12 +372,13 @@ def main() -> None:
                     Mx = np.linalg.inv(Mx_inv)
                 else:
                     Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
-                a_v = x_ddot_desired + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
+                a_v = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v + Kp @ S_v * x_tilde + Kd @ S_v * x_dot_tilde
                 
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
-                F_desired_contact = np.array([10.0, 0.0, 0.0])
+                # F_desired_contact = np.array([10.0, 0.0, 0.0])
+                F_desired_contact = np.array([-10.0])
                 # fλ = λ¨d + KD(λ˙ d − λ˙ ) + KP(λd − λ), (9.81)
                 # ------ F_dot ------
                 # λ˙ = Sf† K'J(q)q̇
@@ -386,8 +387,10 @@ def main() -> None:
                 K_effective = S_f @ np.linalg.inv(inner) @ S_f.T
                 Sf_pinv = np.linalg.pinv(S_f, rcond=1e-6)
                 F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
-                Kd_force = np.diag([0.5, 0.1, 0.1])
-                Kp_force = np.diag([0.05, 0.01, 0.01])
+                # Kd_force = np.diag([0.5, 0.1, 0.1])
+                # Kp_force = np.diag([0.05, 0.01, 0.01])
+                Kd_force = np.diag([0.8])
+                Kp_force = np.diag([0.1])
                 F_ctrl_constraint = - Kd_force @ F_dot + Kp_force @ (F_desired_contact - F_ext_phi)
                 # F_ctrl_constraint = - Kd @ S_f * F_dot + Kp @ S_f * (F_desired_contact - F_ext_phi)
                 # C' = (I - Pv)C # achieves desired force without C'
