@@ -88,6 +88,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat):
 
 def check_world_ee_contact_force(data, model):
     current_force_world = np.zeros(6)
+    contact_pos = None
     if data.ncon > 0:
         # Compute the contact forces.
         contact_force_local = np.zeros(6)
@@ -97,7 +98,7 @@ def check_world_ee_contact_force(data, model):
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
         contact_rot = contact.frame.reshape(3, 3) # from local to world
-        contact_pos = contact.pos
+        contact_pos = contact.pos.copy()
         force_local = contact_force_local[:3]
         moment_local = contact_force_local[3:]
         force_world = contact_rot @ force_local
@@ -108,7 +109,7 @@ def check_world_ee_contact_force(data, model):
         moment_world = moment_rotated + position_cross_force
         current_force_world[:3] = force_world
         current_force_world[3:] = moment_world
-    return current_force_world
+    return current_force_world, contact_pos
 
 def dynamically_consistent_inv(jac, M_inv):
     """

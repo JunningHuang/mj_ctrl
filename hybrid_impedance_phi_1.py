@@ -12,6 +12,7 @@ import pinocchio as pino
 import logging
 from utils import *
 import matplotlib.pyplot as plt
+from geom_visualizer import visualize_normal_arrow, reset_scene
 
 # Configure the logger
 logging.basicConfig(
@@ -143,8 +144,14 @@ def main() -> None:
     # Settings for the contact solver.
     model.opt.cone = 0
 
-    # Visualize contact forces.
+    # Visualize forces.
     contact_forces = []
+    control_force_compensation_arr = []
+    verlociy_term_arr = []
+    F_ctrl_constraint_arr = []
+    control_force_compensation = np.zeros(1)
+    verlociy_term = np.zeros(1)
+    F_ctrl_constraint = np.zeros(1)
 
     # Parameters for the force feedback controller.
     force_feedback = True
@@ -182,6 +189,8 @@ def main() -> None:
         # show_left_ui=False,
         # show_right_ui=False,
     ) as viewer:
+        scene = viewer.user_scn
+        ngeom_init = scene.ngeom
         # Reset the simulation.
         mujoco.mj_resetDataKeyframe(model, data, key_id)
 
@@ -192,7 +201,9 @@ def main() -> None:
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
             step_start = time.time()
-            current_contact_force = check_world_ee_contact_force(data, model)
+            reset_scene(scene, ngeom_init)
+
+            current_contact_force, contact_pos = check_world_ee_contact_force(data, model)
             F_ext_phi = current_contact_force @ S_f
             F_ext_x = current_contact_force @ S_v
             F_ext_v = None # no external contact on the arm and elbows
@@ -207,7 +218,7 @@ def main() -> None:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
                     angle = angular_speed * elapsed_time
-                    # x
+                    # x 
                     target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
                     target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
                     target_pos[2] = circle_center[2]  # Keep Z at table height
@@ -219,6 +230,10 @@ def main() -> None:
                     x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
                     x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
                     x_ddot_desired[2] = 0.0
+                else:
+                    x_dot_desired = np.zeros(3)
+                    x_ddot_desired = np.zeros(3)
+                    print("Circle drawing completed!")
                 # else:
                 #     # Circle completed, stop drawing
                 #     circle_drawing = False
@@ -346,12 +361,17 @@ def main() -> None:
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
                 contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x))
-                verlociy_term = Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                verlociy_term = - Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +
-                    contact_force_compensation - verlociy_term
+                    contact_force_compensation + verlociy_term
                 )
+                vis_forces = [
+                    np.concatenate([[0,0],F_desired_contact]), 
+                    np.concatenate([[0,0],control_force_compensation]), 
+                    np.concatenate([[0,0],verlociy_term])
+                    ]
                 # verlociy term: Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 # --------------------- PI term -------------------------------
                 # F_ctrl_constraint = F_desired_contact.copy()
@@ -375,16 +395,37 @@ def main() -> None:
                 # tau = tau_ctrl_x
                 # tau += tau_ctrl_v
 
+                # Visualize the force command
+                positions = [
+                    contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
+                    contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
+                    contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
+                ]
+                colors = [
+                    np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
+                    np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
+                    np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
+                ]
+                visualize_normal_arrow(
+                    scene=scene, 
+                    arrows_pos_world=positions, 
+                    arrows_vec_world=vis_forces,
+                    colors=colors
+                )
+
                 # Add gravity compensation.
                 if gravity_compensation:
                     tau += data.qfrc_bias[dof_ids]
             #-----------------------------------------------------------------------
 
             # collect data for plotting
-            contact_forces.append(F_ext_phi)
+            contact_forces.append(current_contact_force[:3])
             desired_forces.append(-F_desired_contact)
             ee_positions.append(data.site(site_id).xpos.copy())
             target_positions.append(target_pos.copy())
+            control_force_compensation_arr.append(control_force_compensation)
+            verlociy_term_arr.append(verlociy_term)
+            F_ctrl_constraint_arr.append(F_ctrl_constraint)
             # check formula 13
             # phi_vel_history.append(J_phi @ data.qvel.copy())
             # ee_phi = np.zeros(6)
@@ -407,6 +448,9 @@ def main() -> None:
     desired_forces = np.array(desired_forces)
     ee_positions = np.array(ee_positions)
     target_positions = np.array(target_positions)
+    control_force_compensation_arr = np.array(control_force_compensation_arr)
+    verlociy_term_arr = np.array(verlociy_term_arr)
+    F_ctrl_constraint_arr = np.array(F_ctrl_constraint_arr)
 
     if contact_forces.ndim == 1:
         contact_forces = contact_forces[:, None]
@@ -418,14 +462,24 @@ def main() -> None:
     for i in range(n_dim):
         plt.subplot(n_dim, 1, i+1)
         plt.plot(t, contact_forces[:, i], label="Contact force")
-        plt.plot(t, desired_forces[:, i], label="Desired force")
+        plt.plot(t, desired_forces[:, 0], label="Desired force")
         plt.ylabel(f"Dim {i+1}")
         plt.xlabel("Time [s]")
         plt.legend()
         plt.grid(True)
 
-    plt.tight_layout()
-    plt.show()
+    timesteps, n_dim = F_ctrl_constraint_arr.shape
+    t = np.arange(timesteps) * dt
+    plt.figure(figsize=(8, 3 * n_dim))
+    for i in range(n_dim):
+        plt.subplot(n_dim, 1, i+1)
+        plt.plot(t, control_force_compensation_arr[:, i], label="Control Compensation from other subspaces")
+        plt.plot(t, verlociy_term_arr[:, i], label="Velocity term")
+        plt.plot(t, F_ctrl_constraint_arr[:, i], label="F Control Constraint")
+        plt.ylabel(f"Dim {i}")
+        plt.legend()
+        plt.grid(True)
+    
     # ------------------------------------
     # Plot end effector
     # -----------------------------------
