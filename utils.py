@@ -49,8 +49,8 @@ def PI_term(F_ext, F_desired, dt, integral_force_error):
     """
     f_error = F_ext - F_desired
     integral_force_error += f_error * dt
-    Kp_f = 0.8 * np.ones_like(f_error)
-    Ki_f = 0.8 * np.ones_like(f_error)
+    Kp_f = 2 * np.ones_like(f_error)
+    Ki_f = 2 * np.ones_like(f_error)
     return - Kp_f * f_error - Ki_f * integral_force_error, integral_force_error
 
 def force_dot(S_f, Compliance_matrix, jac, data, dof_ids):
@@ -103,7 +103,7 @@ def check_world_ee_contact_force(data, model):
         moment_local = contact_force_local[3:]
         force_world = contact_rot @ force_local
         # TODO: can I get world frame moment like this?
-        # answer: moment_world = R @ moment_local + p × force_worl
+        # answer: moment_world = R @ moment_local + p × force_world
         moment_rotated = contact_rot @ moment_local
         position_cross_force = np.cross(contact_pos, force_world)
         moment_world = moment_rotated + position_cross_force

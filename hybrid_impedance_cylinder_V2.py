@@ -106,7 +106,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     
-    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
+    target_pos = np.array([0.4, 0., 0.6])  # Note that the height of the table is 0.45m
     target_quat = np.array([0., 1., 0., 0.])
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
@@ -118,15 +118,15 @@ def main() -> None:
     error_quat = np.zeros(4)
 
     # Circle drawing parameters
-    circle_center = np.array([0.5, 0.0, 0.45])  # Center of circle on table
-    circle_radius = 0.1  # 10cm radius
+    circle_center = np.array([0.4, 0.0, 0.45])  # Center of circle on table
+    circle_radius = 0.15  # 10cm radius
     circle_drawing = False
     circle_start_time = 0
     circle_duration = 10.0  # 10 seconds draw circles, after 10s it stops
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi
+    angular_speed = np.pi/4
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -172,14 +172,14 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_f = np.zeros((6, 1)) 
-    S_f[2, 0] = 1
-    S_v = np.zeros((6, 5))
-    S_v[0, 0] = 1
-    S_v[1, 1] = 1
-    S_v[3, 2] = 1
-    S_v[4, 3] = 1
-    S_v[5, 4] = 1
+    S_fc = np.zeros((6, 1)) 
+    S_fc[2, 0] = 1
+    S_vc = np.zeros((6, 5))
+    S_vc[0, 0] = 1
+    S_vc[1, 1] = 1
+    S_vc[3, 2] = 1
+    S_vc[4, 3] = 1
+    S_vc[5, 4] = 1
 
     # check phi_ddot if it's zero
     phi_vel_history = []
@@ -219,22 +219,30 @@ def main() -> None:
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
-                    angle = angular_speed * elapsed_time
-                    # x 
-                    target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
+                    # - pi/4 to pi/4
+                    angle = (np.pi/4) * np.sin(angular_speed * elapsed_time)
+                    angle_dot = (np.pi/4) * angular_speed * np.cos(angular_speed * elapsed_time)
+                    angle_ddot = -(np.pi/4) * angular_speed**2 * np.sin(angular_speed * elapsed_time)
+                    # x
+                    target_pos[0] = circle_center[0]
                     target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
-                    target_pos[2] = circle_center[2]  # Keep Z at table height
+                    target_pos[2] = circle_center[2] + circle_radius * np.cos(angle)
                     # x_dot
-                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
-                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
-                    x_dot_desired[2] = 0.0
+                    x_dot_desired[0] = 0.0
+                    x_dot_desired[1] = circle_radius * np.cos(angle) * angle_dot
+                    x_dot_desired[2] = -circle_radius * np.sin(angle) * angle_dot
                     # x_ddot
-                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
-                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
-                    x_ddot_desired[2] = 0.0
+                    x_ddot_desired[0] = 0.0
+                    x_ddot_desired[1] = circle_radius * (
+                        -np.sin(angle) * angle_dot**2 + np.cos(angle) * angle_ddot
+                    )
+                    x_ddot_desired[2] = circle_radius * (
+                        -np.cos(angle) * angle_dot**2 - np.sin(angle) * angle_ddot
+                    )
                 else:
-                    x_dot_desired = np.zeros(3)
-                    x_ddot_desired = np.zeros(3)
+                    # TODO
+                    # x_dot_desired = np.zeros(3)
+                    # x_ddot_desired = np.zeros(3)
                     print("Circle drawing completed!")
                 # else:
                 #     # Circle completed, stop drawing
