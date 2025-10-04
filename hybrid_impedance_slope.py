@@ -23,20 +23,6 @@ from geom_visualizer import visualize_normal_arrow, reset_scene
 #     datefmt='%H:%M:%S'
 # )
 
-
-
-# Gains for the twist computation. These should be between 0 and 1. 0 means no
-# movement, 1 means move the end-effector to the target in one integration step.
-Kpos: float = 0.95
-
-# Gain for the orientation component of the twist computation. This should be
-# between 0 and 1. 0 means no movement, 1 means move the end-effector to the target
-# orientation in one integration step.
-Kori: float = 0.95
-
-# Integration timestep in seconds.
-integration_dt: float = 1.0
-
 # Whether to enable gravity compensation.
 gravity_compensation: bool = True
 
@@ -47,7 +33,7 @@ def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
 
     # Load the model and data.
-    xml_path = "kuka_iiwa_14/scene_notarget.xml"
+    xml_path = "kuka_iiwa_14/table_slope.xml"
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
     pino_model = pino.buildModelFromMJCF("./kuka_iiwa_14/iiwa14.xml")
@@ -105,20 +91,20 @@ def main() -> None:
     key_id = model.key(key_name).id
     q0 = model.key(key_name).qpos
 
-    
-    target_pos = np.array([0.6, 0., 0.45])  # Note that the height of the table is 0.45m
+    # slope information and tracjectory
+    target_pos = np.array([0.6500, -0.0050, 0.5587])
     target_quat = np.array([0., 1., 0., 0.])
+    quat_slope = np.zeros(4)
+    mujoco.mju_euler2Quat(quat_slope, np.array([0.5236, 0, 0]), 'XYZ') # slope rotatio
+    mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
     x_dot_desired = np.zeros(3)
     x_ddot_desired = np.zeros(3)
-
-    # normal control
-    twist = np.zeros(6)
-    site_quat = np.zeros(4)
-    site_quat_conj = np.zeros(4)
-    error_quat = np.zeros(4)
+    R_slope = euler_to_rot_matrix(np.array([0.5236, 0, 0]))
+    size_z = 0.01
+    
 
     # Circle drawing parameters
-    circle_center = np.array([0.5, 0.0, 0.45])  # Center of circle on table
+    circle_center = np.array([0.55, 0.0, 0.55])  # Center of circle on table
     circle_radius = 0.1  # 10cm radius
     circle_drawing = False
     circle_start_time = 0
@@ -126,7 +112,10 @@ def main() -> None:
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi
+    angular_speed = np.pi/4
+
+    # normal control
+    twist = np.zeros(6)
 
     # Pre-allocate numpy arrays.
     jac = np.zeros((6, model.nv))
@@ -172,14 +161,19 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_f = np.zeros((6, 1)) 
-    S_f[2, 0] = 1
-    S_v = np.zeros((6, 5))
-    S_v[0, 0] = 1
-    S_v[1, 1] = 1
-    S_v[3, 2] = 1
-    S_v[4, 3] = 1
-    S_v[5, 4] = 1
+    S_fc = np.zeros((6, 1)) 
+    S_fc[2, 0] = 1
+    S_vc = np.zeros((6, 5))
+    S_vc[0, 0] = 1
+    S_vc[1, 1] = 1
+    S_vc[3, 2] = 1
+    S_vc[4, 3] = 1
+    S_vc[5, 4] = 1
+    R = np.zeros((6, 6))
+    R[0:3, 0:3] = R_slope
+    R[3:6, 3:6] = R_slope
+    S_f = R @ S_fc
+    S_v = R @ S_vc
 
     # check phi_ddot if it's zero
     phi_vel_history = []
@@ -221,9 +215,9 @@ def main() -> None:
                 if elapsed_time < circle_duration:
                     angle = angular_speed * elapsed_time
                     # x 
-                    target_pos[0] = circle_center[0] + circle_radius * np.cos(angle)
-                    target_pos[1] = circle_center[1] + circle_radius * np.sin(angle)
-                    target_pos[2] = circle_center[2]  # Keep Z at table height
+                    target_pos[0] = circle_radius * np.cos(angle)
+                    target_pos[1] = circle_radius * np.sin(angle)
+                    target_pos[2] = size_z # Keep Z at table height
                     # x_dot
                     x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
                     x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
@@ -232,6 +226,10 @@ def main() -> None:
                     x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
                     x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
                     x_ddot_desired[2] = 0.0
+
+                    target_pos = circle_center + (R_slope @ target_pos)
+                    x_dot_desired = R_slope @ x_dot_desired
+                    x_ddot_desired = R_slope @ x_ddot_desired
                 else:
                     x_dot_desired = np.zeros(3)
                     x_ddot_desired = np.zeros(3)
@@ -250,7 +248,9 @@ def main() -> None:
                     target_pos, 
                     data.site(site_id).xpos.copy(),
                     target_quat,
-                    data.site(site_id).xmat.copy())
+                    data.site(site_id).xmat.copy(),
+                    Kpos=0.5
+                    )
 
                 # Jacobian.
                 mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
@@ -379,8 +379,8 @@ def main() -> None:
                     ]
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
-                pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
-                F_ctrl_constraint += pi_term
+                # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
+                # F_ctrl_constraint += pi_term
                 # -------------------- PD force control ----------------
                 # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
                 # Problem: λ˙ = Sf† K'J(q)q̇

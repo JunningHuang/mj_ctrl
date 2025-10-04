@@ -63,14 +63,13 @@ def force_dot(S_f, Compliance_matrix, jac, data, dof_ids):
     F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
     return F_dot
 
-def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat):
+def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95):
     twist = np.zeros(6)
     site_quat = np.zeros(4)
     site_quat_conj = np.zeros(4)
     error_quat = np.zeros(4)
-    # Gains for the twist computation. These should be between 0 and 1. 0 means no
+    # Kpos Gains for the twist computation. These should be between 0 and 1. 0 means no
     # movement, 1 means move the end-effector to the target in one integration step.
-    Kpos: float = 0.95
     # Gain for the orientation component of the twist computation. This should be
     # between 0 and 1. 0 means no movement, 1 means move the end-effector to the target
     # orientation in one integrati on step.
@@ -212,6 +211,26 @@ def hierarchical_impedance_jacob(jac_list: list, dim):
         J_bars.append(J_bar)
     return Ns, J_bars
 
+def euler_to_rot_matrix(euler):
+    """
+    Convert Euler angles (roll, pitch, yaw) to a rotation matrix.
+    The input euler angles are in radians.
+    The output rotation matrix is a 3x3 numpy array.
+    """
+    roll, pitch, yaw = euler
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(roll), -np.sin(roll)],
+                    [0, np.sin(roll), np.cos(roll)]])
+    
+    R_y = np.array([[np.cos(pitch), 0, np.sin(pitch)],
+                    [0, 1, 0],
+                    [-np.sin(pitch), 0, np.cos(pitch)]])
+    
+    R_z = np.array([[np.cos(yaw), -np.sin(yaw), 0],
+                    [np.sin(yaw), np.cos(yaw), 0],
+                    [0, 0, 1]])
+    
+    return R_z @ R_y @ R_x
 # def PDI_term():
 #     contact_force_local = np.zeros(6)
 #     for i in range(data.ncon):
