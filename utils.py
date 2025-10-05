@@ -85,7 +85,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
     return twist
 
 
-def check_world_ee_contact_force(data, model):
+def check_world_ee_contact_force(data, model, obj_name='board'):
     current_force_world = np.zeros(6)
     contact_pos = None
     if data.ncon > 0:
@@ -93,7 +93,7 @@ def check_world_ee_contact_force(data, model):
         contact_force_local = np.zeros(6)
         for i in range(data.ncon):
             contact = data.contact[i]
-            if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+            if contact.geom1 == model.geom(obj_name).id or contact.geom2 == model.geom(obj_name).id:
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
         contact_rot = contact.frame.reshape(3, 3) # from local to world

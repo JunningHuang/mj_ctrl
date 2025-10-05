@@ -93,12 +93,15 @@ def main() -> None:
 
     # slope information and tracjectory
     target_pos = np.array([0.6500, -0.0050, 0.5587])
+    target_pos_local = np.zeros(3)
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
     mujoco.mju_euler2Quat(quat_slope, np.array([0.5236, 0, 0]), 'XYZ') # slope rotatio
     mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
     x_dot_desired = np.zeros(3)
+    x_dot_desired_local = np.zeros(3)
     x_ddot_desired = np.zeros(3)
+    x_ddot_desired_local = np.zeros(3)
     R_slope = euler_to_rot_matrix(np.array([0.5236, 0, 0]))
     size_z = 0.01
     
@@ -199,7 +202,8 @@ def main() -> None:
             step_start = time.time()
             reset_scene(scene, ngeom_init)
 
-            current_contact_force, contact_pos = check_world_ee_contact_force(data, model)
+            current_contact_force, contact_pos = check_world_ee_contact_force(data, model, obj_name='slope_geom')
+            # TODO change size z
             F_ext_phi = current_contact_force @ S_f
             F_ext_x = current_contact_force @ S_v
             F_ext_v = None # no external contact on the arm and elbows
@@ -213,27 +217,29 @@ def main() -> None:
             if circle_drawing:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
-                    angle = angular_speed * elapsed_time
+                    # numerical stability
+                    angle = angular_speed * elapsed_time % (2 * np.pi)
                     # x 
-                    target_pos[0] = circle_radius * np.cos(angle)
-                    target_pos[1] = circle_radius * np.sin(angle)
-                    target_pos[2] = size_z # Keep Z at table height
+                    target_pos_local[0] = circle_radius * np.cos(angle)
+                    target_pos_local[1] = circle_radius * np.sin(angle)
+                    target_pos_local[2] = size_z # Keep Z at table height
                     # x_dot
-                    x_dot_desired[0] = -circle_radius * angular_speed * np.sin(angle)
-                    x_dot_desired[1] =  circle_radius * angular_speed * np.cos(angle)
-                    x_dot_desired[2] = 0.0
+                    x_dot_desired_local[0] = -circle_radius * angular_speed * np.sin(angle)
+                    x_dot_desired_local[1] =  circle_radius * angular_speed * np.cos(angle)
+                    x_dot_desired_local[2] = 0.0
                     # x_ddot
-                    x_ddot_desired[0] = -circle_radius * angular_speed**2 * np.cos(angle)
-                    x_ddot_desired[1] = -circle_radius * angular_speed**2 * np.sin(angle)
-                    x_ddot_desired[2] = 0.0
+                    x_ddot_desired_local[0] = -circle_radius * angular_speed**2 * np.cos(angle)
+                    x_ddot_desired_local[1] = -circle_radius * angular_speed**2 * np.sin(angle)
+                    x_ddot_desired_local[2] = 0.0
 
-                    target_pos = circle_center + (R_slope @ target_pos)
-                    x_dot_desired = R_slope @ x_dot_desired
-                    x_ddot_desired = R_slope @ x_ddot_desired
+                    target_pos[:] = circle_center + (R_slope @ target_pos_local)
+                    x_dot_desired[:] = R_slope @ x_dot_desired_local
+                    x_ddot_desired[:] = R_slope @ x_ddot_desired_local
                 else:
-                    x_dot_desired = np.zeros(3)
-                    x_ddot_desired = np.zeros(3)
+                    x_dot_desired[:] = np.zeros(3)
+                    x_ddot_desired[:] = np.zeros(3)
                     print("Circle drawing completed!")
+                    # exit()
                 # else:
                 #     # Circle completed, stop drawing
                 #     circle_drawing = False
@@ -359,9 +365,11 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
+                pino_frame_id = pino_model.getFrameId("attachment")
+                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
                 J_phi_dot = S_f.T @ J_dot
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
+                # remove rotation related force
                 F_ext_x_new = F_ext_x.copy()
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
@@ -515,7 +523,7 @@ def main() -> None:
     # Add x-label to bottom subplot
     axes[2].set_xlabel('Time (s)')
     plt.tight_layout()
-    # fig.savefig("plots/ee_position_tracking.png")
+    fig.savefig("plots/ee_position_tracking.png")
     plt.show()
     plt.close(fig)
 

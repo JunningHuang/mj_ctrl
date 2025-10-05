@@ -2,3 +2,9 @@ diffik_qpsolvers.py
 diffik_qp.py
 __pycache__/utils.cpython-311.pyc
 __pycache__/
+.idea/.gitignore
+.idea/misc.xml
+.idea/mj_ctrl.iml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/profiles_settings.xml

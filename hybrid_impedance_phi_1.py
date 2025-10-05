@@ -359,7 +359,8 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
+                pino_frame_id = pino_model.getFrameId("attachment")
+                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
                 J_phi_dot = S_f.T @ J_dot
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
                 F_ext_x_new = F_ext_x.copy()
