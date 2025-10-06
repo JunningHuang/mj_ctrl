@@ -366,12 +366,12 @@ def main() -> None:
                 F_ext_x_new = F_ext_x.copy()
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
                 verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +
-                    1 * contact_force_compensation + verlociy_term
+                    contact_force_compensation + verlociy_term
                 )
                 vis_forces = [
                     np.concatenate([[0,0],F_desired_contact]), 
@@ -380,8 +380,8 @@ def main() -> None:
                     ]
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
-                pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
-                F_ctrl_constraint += pi_term
+                # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
+                # F_ctrl_constraint += pi_term
                 # -------------------- PD force control ----------------
                 # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
                 # Problem: λ˙ = Sf† K'J(q)q̇

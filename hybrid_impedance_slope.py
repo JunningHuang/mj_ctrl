@@ -92,7 +92,7 @@ def main() -> None:
     q0 = model.key(key_name).qpos
 
     # slope information and tracjectory
-    target_pos = np.array([0.6500, -0.0050, 0.5587])
+    target_pos = np.array([0.6500, -0.0050, 0.5587]) # size_z = 0.01
     target_pos_local = np.zeros(3)
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
@@ -115,7 +115,7 @@ def main() -> None:
     contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
     contact_stable_time = 0
     contact_stable_duration = 1.0
-    angular_speed = np.pi/4
+    angular_speed = np.pi
 
     # normal control
     twist = np.zeros(6)
@@ -204,8 +204,8 @@ def main() -> None:
 
             current_contact_force, contact_pos = check_world_ee_contact_force(data, model, obj_name='slope_geom')
             # TODO change size z
-            F_ext_phi = current_contact_force @ S_f
-            F_ext_x = current_contact_force @ S_v
+            F_ext_phi = current_contact_force @ S_fc
+            F_ext_x = current_contact_force @ S_vc
             F_ext_v = None # no external contact on the arm and elbows
             # Check if it arrives at surface
             if not circle_drawing:
@@ -373,12 +373,12 @@ def main() -> None:
                 F_ext_x_new = F_ext_x.copy()
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
                 verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +
-                    1 * contact_force_compensation + verlociy_term
+                    contact_force_compensation + verlociy_term
                 )
                 vis_forces = [
                     np.concatenate([[0,0],F_desired_contact]), 

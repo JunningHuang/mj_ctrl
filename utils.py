@@ -96,12 +96,13 @@ def check_world_ee_contact_force(data, model, obj_name='board'):
             if contact.geom1 == model.geom(obj_name).id or contact.geom2 == model.geom(obj_name).id:
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
+        # Contact frame x-axis (normal) points FROM geom2 TO geom1
         contact_rot = contact.frame.reshape(3, 3) # from local to world
+        # contact_rot = np.array([[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, -0.0, 0.0]])
         contact_pos = contact.pos.copy()
         force_local = contact_force_local[:3]
         moment_local = contact_force_local[3:]
         force_world = contact_rot @ force_local
-        # TODO: can I get world frame moment like this?
         # answer: moment_world = R @ moment_local + p × force_world
         moment_rotated = contact_rot @ moment_local
         position_cross_force = np.cross(contact_pos, force_world)
