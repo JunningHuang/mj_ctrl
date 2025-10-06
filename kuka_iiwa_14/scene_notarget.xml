@@ -23,7 +23,7 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
-    <body name="table" pos="0.75 0 0" quat="0.7071 0 0 0.7071">
+    <body name="table" pos="0.55 0 0" quat="0.7071 0 0 0.7071">
       <include file="../furniture_sim/simpleTable/simpleWoodTable_body.xml" />
     </body>
   </worldbody>

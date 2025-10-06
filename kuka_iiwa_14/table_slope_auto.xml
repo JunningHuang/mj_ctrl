@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="iiwa14 scene">
+  <include file="iiwa14.xml" />
+  <include file="../furniture_sim/simpleTable/simpleTable_asset.xml" />
+
+  <statistic center="0.3 0 0.4" extent="0.8" meansize="0.05" />
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0" />
+    <global azimuth="120" elevation="-20" />
+  </visual>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
+    <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" />
+  </asset>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300" />
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2" />
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true" />
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" />
+    <body name="table" pos="0.55 0 0" quat="0.7071 0 0 0.7071">
+      <include file="../furniture_sim/simpleTable/simpleWoodTable_body.xml" />
+    </body>
+  <body name="slope_body" pos="0.55 0.0 0.55" euler="0.7853982 0.0 0.0">
+      <geom name="slope_geom" type="box" size="0.20 0.20 0.01" rgba="0.8 0.2 0.2 0.5" contype="1" conaffinity="1" />
+    </body><site name="circle_0" pos="0.6500 -0.0071 0.5571" size="0.003" rgba="0 0 1 1" />
+<site name="circle_1" pos="0.6451 0.0148 0.5789" size="0.003" rgba="0 0 1 1" />
+<site name="circle_2" pos="0.6309 0.0345 0.5986" size="0.003" rgba="0 0 1 1" />
+<site name="circle_3" pos="0.6088 0.0501 0.6143" size="0.003" rgba="0 0 1 1" />
+<site name="circle_4" pos="0.5809 0.0602 0.6243" size="0.003" rgba="0 0 1 1" />
+<site name="circle_5" pos="0.5500 0.0636 0.6278" size="0.003" rgba="0 0 1 1" />
+<site name="circle_6" pos="0.5191 0.0602 0.6243" size="0.003" rgba="0 0 1 1" />
+<site name="circle_7" pos="0.4912 0.0501 0.6143" size="0.003" rgba="0 0 1 1" />
+<site name="circle_8" pos="0.4691 0.0345 0.5986" size="0.003" rgba="0 0 1 1" />
+<site name="circle_9" pos="0.4549 0.0148 0.5789" size="0.003" rgba="0 0 1 1" />
+<site name="circle_10" pos="0.4500 -0.0071 0.5571" size="0.003" rgba="0 0 1 1" />
+<site name="circle_11" pos="0.4549 -0.0289 0.5352" size="0.003" rgba="0 0 1 1" />
+<site name="circle_12" pos="0.4691 -0.0486 0.5155" size="0.003" rgba="0 0 1 1" />
+<site name="circle_13" pos="0.4912 -0.0643 0.4999" size="0.003" rgba="0 0 1 1" />
+<site name="circle_14" pos="0.5191 -0.0743 0.4898" size="0.003" rgba="0 0 1 1" />
+<site name="circle_15" pos="0.5500 -0.0778 0.4864" size="0.003" rgba="0 0 1 1" />
+<site name="circle_16" pos="0.5809 -0.0743 0.4898" size="0.003" rgba="0 0 1 1" />
+<site name="circle_17" pos="0.6088 -0.0643 0.4999" size="0.003" rgba="0 0 1 1" />
+<site name="circle_18" pos="0.6309 -0.0486 0.5155" size="0.003" rgba="0 0 1 1" />
+<site name="circle_19" pos="0.6451 -0.0289 0.5352" size="0.003" rgba="0 0 1 1" />
+</worldbody>
+</mujoco>

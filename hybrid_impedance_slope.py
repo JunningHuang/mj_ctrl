@@ -10,6 +10,7 @@ import numpy as np
 import time
 import pinocchio as pino
 import logging
+
 from utils import *
 import matplotlib.pyplot as plt
 from geom_visualizer import visualize_normal_arrow, reset_scene
@@ -31,19 +32,54 @@ dt: float = 0.002
 
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
+    # constraint geometry
+    euler = np.array([0.5235988, 0, 0])
+    R_slope = euler_to_rot_matrix(euler)
+    size_z = 0.01
+
+    # Circle drawing parameters
+    circle_center = np.array([0.55, 0.0, 0.55])  # Center of circle on table
+    circle_radius = 0.1  # 10cm radius
+    circle_drawing = False
+    circle_start_time = 0
+    circle_duration = 10.0  # 10 seconds draw circles, after 10s it stops
+    contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
+    contact_stable_time = 0
+    contact_stable_duration = 1.0
+    angular_speed = np.pi
+
+    # tracjectory
+    # ---------- start position -----------#
+    target_pos = generate_start_position(circle_radius, circle_center, size_z, R_slope)
+    # target_pos = np.array([0.6500, -0.0050, 0.5587])  # size_z = 0.01
+    target_quat = np.array([0., 1., 0., 0.])
+    quat_slope = np.zeros(4)
+    mujoco.mju_euler2Quat(quat_slope, euler, 'XYZ')  # slope rotatio
+    mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
+    # ----------- initialize trajectory variables -------#
+    target_pos_local = np.zeros(3)
+    x_dot_desired = np.zeros(3)
+    x_dot_desired_local = np.zeros(3)
+    x_ddot_desired = np.zeros(3)
+    x_ddot_desired_local = np.zeros(3)
 
     # Load the model and data.
-    xml_path = "kuka_iiwa_14/table_slope.xml"
-    model = mujoco.MjModel.from_xml_path(xml_path)
+    #xml_path = "kuka_iiwa_14/table_slope.xml"
+    # model = mujoco.MjModel.from_xml_path(xml_path)
+    # data = mujoco.MjData(model)
+    xml_path = "kuka_iiwa_14/scene_notarget.xml"
+    new_xml_path = add_slope_xml(xml_path, euler, size_z, circle_radius, circle_center)
+    model = mujoco.MjModel.from_xml_path(new_xml_path)
     data = mujoco.MjData(model)
+
     pino_model = pino.buildModelFromMJCF("./kuka_iiwa_14/iiwa14.xml")
     pino_data = pino_model.createData()
 
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 3  
-    impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 3
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])
+    impedance_ori = np.asarray([250.0, 250.0, 250.0])
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -90,32 +126,6 @@ def main() -> None:
     key_name = "home"
     key_id = model.key(key_name).id
     q0 = model.key(key_name).qpos
-
-    # slope information and tracjectory
-    target_pos = np.array([0.6500, -0.0050, 0.5587]) # size_z = 0.01
-    target_pos_local = np.zeros(3)
-    target_quat = np.array([0., 1., 0., 0.])
-    quat_slope = np.zeros(4)
-    mujoco.mju_euler2Quat(quat_slope, np.array([0.5236, 0, 0]), 'XYZ') # slope rotatio
-    mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
-    x_dot_desired = np.zeros(3)
-    x_dot_desired_local = np.zeros(3)
-    x_ddot_desired = np.zeros(3)
-    x_ddot_desired_local = np.zeros(3)
-    R_slope = euler_to_rot_matrix(np.array([0.5236, 0, 0]))
-    size_z = 0.01
-    
-
-    # Circle drawing parameters
-    circle_center = np.array([0.55, 0.0, 0.55])  # Center of circle on table
-    circle_radius = 0.1  # 10cm radius
-    circle_drawing = False
-    circle_start_time = 0
-    circle_duration = 10.0  # 10 seconds draw circles, after 10s it stops
-    contact_threshold = 8.0  # Force threshold to start drawing (close to desired 10N)
-    contact_stable_time = 0
-    contact_stable_duration = 1.0
-    angular_speed = np.pi
 
     # normal control
     twist = np.zeros(6)
@@ -374,7 +384,8 @@ def main() -> None:
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
                 contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +

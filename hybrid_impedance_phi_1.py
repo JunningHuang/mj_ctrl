@@ -56,8 +56,8 @@ def main() -> None:
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 3  
-    impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 3
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])
+    impedance_ori = np.asarray([250.0, 250.0, 250.0])
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -359,7 +359,7 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                pino_frame_id = pino_model.getFrameId("attachment")
+                pino_frame_id = pino_model.getFrameId("universe")
                 J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
                 J_phi_dot = S_f.T @ J_dot
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
