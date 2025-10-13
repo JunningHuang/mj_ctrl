@@ -148,6 +148,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
 
 def check_world_ee_contact_force(data, model, obj_name='board'):
     current_force_world = np.zeros(6)
+    current_force_local = np.zeros(6)
     contact_pos = None
     if data.ncon > 0:
         # Compute the contact forces.
@@ -159,8 +160,8 @@ def check_world_ee_contact_force(data, model, obj_name='board'):
                 break
         # Contact frame x-axis (normal) points FROM geom2 To geom1
         # from slope to ee
-        # contact_rot = contact.frame.reshape(3, 3) # from local to world
-        contact_rot = np.array([[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, -0.0, 0.0]])
+        contact_rot = contact.frame.reshape(3, 3).T # from local to world
+        contact_rot_local = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]) # move normal force from x to z
         contact_pos = contact.pos.copy()
         force_local = contact_force_local[:3]
         moment_local = contact_force_local[3:]
@@ -171,7 +172,10 @@ def check_world_ee_contact_force(data, model, obj_name='board'):
         moment_world = moment_rotated + position_cross_force
         current_force_world[:3] = force_world
         current_force_world[3:] = moment_world
-    return current_force_world, contact_pos
+        # local force
+        current_force_local[:3] = contact_rot_local @ force_local
+        current_force_local[3:] = contact_force_local[3:]
+    return current_force_world, current_force_local, contact_pos
 
 def dynamically_consistent_inv(jac, M_inv):
     """

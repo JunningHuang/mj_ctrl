@@ -221,12 +221,12 @@ def main() -> None:
             step_start = time.time()
             reset_scene(scene, ngeom_init)
             if use_table:
-                current_contact_force, contact_pos = check_world_ee_contact_force(data, model)
+                current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(data, model)
             else:
-                current_contact_force, contact_pos = check_world_ee_contact_force(data, model, obj_name='slope_geom')
+                current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(data, model, obj_name='slope_geom')
             # TODO change size z
-            F_ext_phi = current_contact_force @ S_fc
-            F_ext_x = current_contact_force @ S_vc
+            F_ext_phi = current_force_local @ S_fc
+            F_ext_x = current_force_local @ S_vc
             F_ext_v = None # no external contact on the arm and elbows
             # Check if it arrives at surface
             if not circle_drawing:
@@ -402,11 +402,6 @@ def main() -> None:
                     control_force_compensation +
                     contact_force_compensation + verlociy_term
                 )
-                vis_forces = [
-                    np.concatenate([[0,0],F_desired_contact]), 
-                    np.concatenate([[0,0],control_force_compensation]),
-                    np.concatenate([[0,0],verlociy_term]),
-                    ]
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
                 # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
@@ -430,6 +425,11 @@ def main() -> None:
                 # tau += tau_ctrl_v
 
                 # Visualize the force command
+                vis_forces = [
+                    R_slope @ np.concatenate([[0, 0], F_desired_contact]),
+                    R_slope @ np.concatenate([[0, 0], control_force_compensation]),
+                    R_slope @ np.concatenate([[0, 0], verlociy_term]),
+                ]
                 positions = [
                     contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
                     contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
@@ -453,7 +453,7 @@ def main() -> None:
             #-----------------------------------------------------------------------
 
             # collect data for plotting
-            contact_forces.append(current_contact_force[:3])
+            contact_forces.append(current_force_local[:3])
             desired_forces.append(-F_desired_contact)
             ee_positions.append(data.site(site_id).xpos.copy())
             target_positions.append(target_pos.copy())
