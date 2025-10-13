@@ -56,8 +56,8 @@ def main() -> None:
     model.opt.timestep = dt
     # Following parameters are different during circle-drawing and moving-to-table phrases
     damping_ratio = 1.0
-    impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 3  
-    impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 3
+    impedance_pos = np.asarray([500.0, 500.0, 500.0])
+    impedance_ori = np.asarray([250.0, 250.0, 250.0])
     # Compute damping and stiffness matrices.
     damping_pos = damping_ratio * 2 * np.sqrt(impedance_pos)
     damping_ori = damping_ratio * 2 * np.sqrt(impedance_ori)
@@ -359,18 +359,19 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, site_id, pino.LOCAL_WORLD_ALIGNED)
+                pino_frame_id = pino_model.getFrameId("universe")
+                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
                 J_phi_dot = S_f.T @ J_dot
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
                 F_ext_x_new = F_ext_x.copy()
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
                 verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +
-                    1 * contact_force_compensation + verlociy_term
+                    contact_force_compensation + verlociy_term
                 )
                 vis_forces = [
                     np.concatenate([[0,0],F_desired_contact]), 
@@ -379,8 +380,8 @@ def main() -> None:
                     ]
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
-                pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
-                F_ctrl_constraint += pi_term
+                # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
+                # F_ctrl_constraint += pi_term
                 # -------------------- PD force control ----------------
                 # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
                 # Problem: λ˙ = Sf† K'J(q)q̇

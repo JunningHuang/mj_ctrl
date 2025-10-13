@@ -2,8 +2,69 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.linalg import pinv
 import mujoco
+import xml.etree.ElementTree as ET
 from IPython.display import display, Math 
 
+def generate_start_position(r, body_pos, size_z, R):
+    theta = 0
+    circle_local = np.zeros(3)
+    circle_local[0] = r * np.cos(theta)  # x
+    circle_local[1] = r * np.sin(theta)  # y
+    circle_local[2] = size_z  # z
+    return body_pos + (R @ circle_local.T).T
+
+def generate_trajectory_marks(r, size_z, R, body_pos):
+    angular_speed = np.pi / 2
+    delta_t = 0.2
+    T = (2 * np.pi) / angular_speed
+    time = np.arange(0, T, delta_t)
+    circle_points = []
+    for i, elapsed_time in enumerate(time):
+        theta = angular_speed * elapsed_time
+        circle_local = np.zeros(3)
+        circle_local[0] = r * np.cos(theta)  # x
+        circle_local[1] = r * np.sin(theta)  # y
+        circle_local[2] = size_z  # z
+        circle_points.append(circle_local)
+
+    circle_local_array = np.array(circle_points)
+    # --- Step 3: Transform to world frame ---
+    circle_world = body_pos + (R @ circle_local_array.T).T
+    circle_sites = "<sites>\n"
+    for i, point in enumerate(circle_world):
+        circle_sites += (
+            f'<site name="circle_{i}" '
+            f'pos="{point[0]:.4f} {point[1]:.4f} {point[2]:.4f}" '
+            f'size="0.003" rgba="0 0 1 1"/>\n'
+        )
+    circle_sites += "</sites>\n"
+    return circle_sites
+
+def add_slope_xml(xml_path, euler, size_z, r, body_pos):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    worldbody = root.find("worldbody")
+    slope_body = ET.fromstring(f"""
+    <body name="slope_body" pos="{body_pos[0]} {body_pos[1]} {body_pos[2]}" euler="{euler[0]} {euler[1]} {euler[2]}">
+      <geom name="slope_geom"
+            type="box"
+            size="0.20 0.20 {size_z}"
+            rgba="0.8 0.2 0.2 0.5"
+            contype="1"
+            conaffinity="1"/>
+    </body>
+    """)
+    worldbody.append(slope_body)
+    R = euler_to_rot_matrix(euler)
+    sites_xml = generate_trajectory_marks(r, size_z, R, body_pos)
+    sites_root = ET.fromstring(sites_xml)
+    for site in sites_root:
+        worldbody.append(site)
+
+    # WRITE to file for debug
+    new_xml_path = "./kuka_iiwa_14/table_slope_auto.xml"
+    tree.write(new_xml_path, encoding="utf-8", xml_declaration=True)
+    return new_xml_path
 
 def task_space_inertiaM(M_inv, jac):
     """
@@ -85,7 +146,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
     return twist
 
 
-def check_world_ee_contact_force(data, model):
+def check_world_ee_contact_force(data, model, obj_name='board'):
     current_force_world = np.zeros(6)
     contact_pos = None
     if data.ncon > 0:
@@ -93,15 +154,17 @@ def check_world_ee_contact_force(data, model):
         contact_force_local = np.zeros(6)
         for i in range(data.ncon):
             contact = data.contact[i]
-            if contact.geom1 == model.geom("board").id or contact.geom2 == model.geom("board").id:
+            if contact.geom1 == model.geom(obj_name).id or contact.geom2 == model.geom(obj_name).id:
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
-        contact_rot = contact.frame.reshape(3, 3) # from local to world
+        # Contact frame x-axis (normal) points FROM geom2 To geom1
+        # from slope to ee
+        # contact_rot = contact.frame.reshape(3, 3) # from local to world
+        contact_rot = np.array([[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, -0.0, 0.0]])
         contact_pos = contact.pos.copy()
         force_local = contact_force_local[:3]
         moment_local = contact_force_local[3:]
         force_world = contact_rot @ force_local
-        # TODO: can I get world frame moment like this?
         # answer: moment_world = R @ moment_local + p × force_world
         moment_rotated = contact_rot @ moment_local
         position_cross_force = np.cross(contact_pos, force_world)
