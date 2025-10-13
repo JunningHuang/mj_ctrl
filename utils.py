@@ -45,7 +45,7 @@ def add_slope_xml(xml_path, euler, size_z, r, body_pos):
     root = tree.getroot()
     worldbody = root.find("worldbody")
     slope_body = ET.fromstring(f"""
-    <body name="slope_body" pos="0.55 0.0 0.55" euler="{euler[0]} {euler[1]} {euler[2]}">
+    <body name="slope_body" pos="{body_pos[0]} {body_pos[1]} {body_pos[2]}" euler="{euler[0]} {euler[1]} {euler[2]}">
       <geom name="slope_geom"
             type="box"
             size="0.20 0.20 {size_z}"
@@ -157,7 +157,8 @@ def check_world_ee_contact_force(data, model, obj_name='board'):
             if contact.geom1 == model.geom(obj_name).id or contact.geom2 == model.geom(obj_name).id:
                 mujoco.mj_contactForce(model, data, i, contact_force_local)
                 break
-        # Contact frame x-axis (normal) points FROM geom2 TO geom1
+        # Contact frame x-axis (normal) points FROM geom2 To geom1
+        # from slope to ee
         # contact_rot = contact.frame.reshape(3, 3) # from local to world
         contact_rot = np.array([[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, -0.0, 0.0]])
         contact_pos = contact.pos.copy()
