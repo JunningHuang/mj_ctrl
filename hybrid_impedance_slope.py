@@ -33,7 +33,7 @@ dt: float = 0.002
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
     # constraint geometry
-    euler = np.array([np.deg2rad(30), 0, 0])
+    euler = np.array([np.deg2rad(-5), 0, 0])
     R_slope = euler_to_rot_matrix(euler)
     size_z = 0.01
 
@@ -425,27 +425,28 @@ def main() -> None:
                 # tau += tau_ctrl_v
 
                 # Visualize the force command
-                vis_forces = [
-                    R_slope @ np.concatenate([[0, 0], F_desired_contact]),
-                    R_slope @ np.concatenate([[0, 0], control_force_compensation]),
-                    R_slope @ np.concatenate([[0, 0], verlociy_term]),
-                ]
-                positions = [
-                    contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
-                    contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
-                    contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
-                ]
-                colors = [
-                    np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
-                    np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
-                    np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
-                ]
-                visualize_normal_arrow(
-                    scene=scene, 
-                    arrows_pos_world=positions, 
-                    arrows_vec_world=vis_forces,
-                    colors=colors
-                )
+                if contact_pos is not None:
+                    vis_forces = [
+                        R_slope @ np.concatenate([[0, 0], F_desired_contact]),
+                        R_slope @ np.concatenate([[0, 0], control_force_compensation]),
+                        R_slope @ np.concatenate([[0, 0], verlociy_term]),
+                    ]
+                    positions = [
+                        contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
+                        contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)
+                        contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
+                    ]
+                    colors = [
+                        np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
+                        np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
+                        np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
+                    ]
+                    visualize_normal_arrow(
+                        scene=scene,
+                        arrows_pos_world=positions,
+                        arrows_vec_world=vis_forces,
+                        colors=colors
+                    )
 
                 # Add gravity compensation.
                 if gravity_compensation:

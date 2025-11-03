@@ -33,9 +33,9 @@ dt: float = 0.002
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
     # constraint geometry
-    euler = np.array([np.deg2rad(30), 0, 0])
-    R_slope = euler_to_rot_matrix(euler)
-    size_z = 0.01
+    euler_cylinder = np.array([0, np.deg2rad(-90), 0])
+    R_cylinder = euler_to_rot_matrix(euler_cylinder)
+    size_z = 0.0
 
     # Circle drawing parameters
     circle_center = np.array([0.5, 0.0, 0.45]) # Center of circle on table
@@ -50,16 +50,13 @@ def main() -> None:
 
     # tracjectory
     # ---------- start position -----------#
-    use_table = False
-    if use_table:
-        target_pos = np.array([0.6, 0., 0.45])
-    else:
-        target_pos = generate_start_position(circle_radius, circle_center, size_z, R_slope)
+    use_table = True
+
+    target_pos = generate_start_position(circle_radius, circle_center, size_z, R_cylinder)
     # target_pos = np.array([0.6500, -0.0050, 0.5587])  # size_z = 0.01
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
-    mujoco.mju_euler2Quat(quat_slope, euler, 'XYZ')  # slope rotatio
-    mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
+    euler_slope = np.array([0, 0, 0])
     # ----------- initialize trajectory variables -------#
     target_pos_local = np.zeros(3)
     x_dot_desired = np.zeros(3)
@@ -71,13 +68,13 @@ def main() -> None:
     #xml_path = "kuka_iiwa_14/table_slope.xml"
     # model = mujoco.MjModel.from_xml_path(xml_path)
     # data = mujoco.MjData(model)
-    xml_path = "kuka_iiwa_14/scene_notarget.xml"
+    xml_path = "kuka_iiwa_14/scene_notable.xml"
     if use_table:
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
     else:
         xml_path = "kuka_iiwa_14/scene_notable.xml"
-        new_xml_path = add_slope_xml(xml_path, euler, size_z, circle_radius, circle_center)
+        new_xml_path = add_cylinder_xml(xml_path=xml_path, euler=euler_cylinder, size=[0.1, 0.1], body_pos=circle_center)
         model = mujoco.MjModel.from_xml_path(new_xml_path)
         data = mujoco.MjData(model)
 
@@ -183,7 +180,7 @@ def main() -> None:
     target_positions = []
 
     # S_f and S_v are mappings between end effector force & verlocity and constraint frame force & verlocity
-    S_fc = np.zeros((6, 1)) 
+    S_fc = np.zeros((6, 1))
     S_fc[2, 0] = 1
     S_vc = np.zeros((6, 5))
     S_vc[0, 0] = 1
@@ -191,11 +188,9 @@ def main() -> None:
     S_vc[3, 2] = 1
     S_vc[4, 3] = 1
     S_vc[5, 4] = 1
-    R = np.zeros((6, 6))
-    R[0:3, 0:3] = R_slope
-    R[3:6, 3:6] = R_slope
-    S_f = R @ S_fc
-    S_v = R @ S_vc
+    # S_fc = np.zeros((6, 0))
+    # S_vc = np.eye(6)
+
 
     # check phi_ddot if it's zero
     phi_vel_history = []
@@ -223,7 +218,7 @@ def main() -> None:
             if use_table:
                 current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(data, model)
             else:
-                current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(data, model, obj_name='slope_geom')
+                current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(data, model, obj_name='cylinder_geom')
             # TODO change size z
             F_ext_phi = current_force_local @ S_fc
             F_ext_x = current_force_local @ S_vc
@@ -239,23 +234,47 @@ def main() -> None:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
                     # numerical stability
-                    angle = angular_speed * elapsed_time % (2 * np.pi)
+                    angle = (np.pi / 2) * np.sin(angular_speed * elapsed_time)
+                    angle_dot = (np.pi / 2) * angular_speed * np.cos(angular_speed * elapsed_time)
+                    angle_ddot = -(np.pi / 2) * angular_speed ** 2 * np.sin(angular_speed * elapsed_time)
                     # x 
                     target_pos_local[0] = circle_radius * np.cos(angle)
                     target_pos_local[1] = circle_radius * np.sin(angle)
                     target_pos_local[2] = size_z # Keep Z at table height
                     # x_dot
-                    x_dot_desired_local[0] = -circle_radius * angular_speed * np.sin(angle)
-                    x_dot_desired_local[1] =  circle_radius * angular_speed * np.cos(angle)
+                    x_dot_desired_local[0] = -circle_radius * np.sin(angle) * angle_dot
+                    x_dot_desired_local[1] =  circle_radius * np.cos(angle) * angle_dot
                     x_dot_desired_local[2] = 0.0
                     # x_ddot
-                    x_ddot_desired_local[0] = -circle_radius * angular_speed**2 * np.cos(angle)
-                    x_ddot_desired_local[1] = -circle_radius * angular_speed**2 * np.sin(angle)
+                    x_ddot_desired_local[0] = -circle_radius * (
+                            np.cos(angle) * angle_dot**2 + np.sin(angle) * angle_ddot
+                    )
+                    x_ddot_desired_local[1] = circle_radius * (
+                            -np.sin(angle) * angle_dot**2 + np.cos(angle) * angle_ddot
+                    )
                     x_ddot_desired_local[2] = 0.0
 
-                    target_pos[:] = circle_center + (R_slope @ target_pos_local)
-                    x_dot_desired[:] = R_slope @ x_dot_desired_local
-                    x_ddot_desired[:] = R_slope @ x_ddot_desired_local
+                    target_pos[:] = circle_center + (R_cylinder @ target_pos_local)
+                    x_dot_desired[:] = R_cylinder @ x_dot_desired_local
+                    x_ddot_desired[:] = R_cylinder @ x_ddot_desired_local
+
+                    radial_vector = target_pos - circle_center
+                    surface_normal = radial_vector / np.linalg.norm(radial_vector)
+                    approach_direction = surface_normal
+                    x_axis = np.array([1.0, 0.0, 0.0])
+                    y_axis = np.cross(approach_direction, x_axis)
+                    R_slope = np.column_stack([x_axis, y_axis, approach_direction])
+                    # mujoco.mju_mat2Quat(quat_slope, R_slope.flatten())
+                    # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
+                    # R_slope = euler_to_rot_matrix(euler_slope)
+                    # R = np.zeros((6, 6))
+                    # R[0:3, 0:3] = R_slope
+                    # # R[3:6, 3:6] = R_slope
+
+
+                    # quat_slope = np.zeros(4)
+                    # mujoco.mju_euler2Quat(quat_slope, euler_slope, 'XYZ')  # slope rotatio
+                    # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
                 else:
                     x_dot_desired[:] = np.zeros(3)
                     x_ddot_desired[:] = np.zeros(3)
@@ -265,7 +284,7 @@ def main() -> None:
                 #     # Circle completed, stop drawing
                 #     circle_drawing = False
                 #     print("Circle drawing completed!")
-            
+
             #-----------------------------------------------------------------------
             # Position Control
             # if there is no contact, use baseline algo to move the ee to surface
@@ -308,8 +327,9 @@ def main() -> None:
                 mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
                 # jac 
                 # J_phi = A @ jac
-                J_phi = S_f.T @ jac
-                J_motion = S_v.T @ jac
+                J_phi = constraint_jacobian(jac, data.site(site_id).xpos.copy(), circle_center)
+                J_motion = get_unconstrained_jacobian(jac, data.site(site_id).xpos.copy(),
+                                                      circle_center, circle_radius)
                 jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
                 # according to paper equation (9), only null space Jacobian needs to be derived
 
@@ -378,30 +398,30 @@ def main() -> None:
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
-                Mx_constraint = task_space_inertiaM(M_inv, J_phi) # lambda_phi
-                C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel)
-                # F_desired_contact = np.array([-10.0, 0, 0])
-                # F_desired_contact = np.array([-10.0])
-                # F_ctrl_constraint = F_desired_contact
-                # computeJointJacobiansTimeVariation
-                # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
-                # ----------------- bruno's method -----------------------
-                pino_frame_id = 0 # pino_model.getFrameId("attachment")
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
-                J_phi_dot = S_f.T @ J_dot
-                # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
-                # remove rotation related force
-                F_ext_x_new = F_ext_x.copy()
-                F_ext_x_new[-3:] = 0
-                control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
-                F_ctrl_constraint = (
-                    F_desired_contact +
-                    control_force_compensation +
-                    contact_force_compensation + verlociy_term
-                )
+                # Mx_constraint = task_space_inertiaM(M_inv, J_phi) # lambda_phi
+                # C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel)
+                # # F_desired_contact = np.array([-10.0, 0, 0])
+                # # F_desired_contact = np.array([-10.0])
+                # # F_ctrl_constraint = F_desired_contact
+                # # computeJointJacobiansTimeVariation
+                # # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
+                # # ----------------- bruno's method -----------------------
+                # pino_frame_id = 0 # pino_model.getFrameId("attachment")
+                # J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+                # J_phi_dot = S_f.T @ J_dot
+                # # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
+                # # remove rotation related force
+                # F_ext_x_new = F_ext_x.copy()
+                # F_ext_x_new[-3:] = 0
+                # control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
+                # contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                # # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
+                # F_ctrl_constraint = (
+                #     F_desired_contact +
+                #     control_force_compensation +
+                #     contact_force_compensation + verlociy_term
+                # )
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
                 # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
@@ -419,33 +439,34 @@ def main() -> None:
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+                # tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
                 # ----- test only motion space control ------
-                # tau = tau_ctrl_x
+                tau = tau_ctrl_x + tau_ctrl_v
                 # tau += tau_ctrl_v
 
                 # Visualize the force command
-                vis_forces = [
-                    R_slope @ np.concatenate([[0, 0], F_desired_contact]),
-                    R_slope @ np.concatenate([[0, 0], control_force_compensation]),
-                    R_slope @ np.concatenate([[0, 0], verlociy_term]),
-                ]
-                positions = [
-                    contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
-                    contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
-                    contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
-                ]
-                colors = [
-                    np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
-                    np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
-                    np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
-                ]
-                visualize_normal_arrow(
-                    scene=scene, 
-                    arrows_pos_world=positions, 
-                    arrows_vec_world=vis_forces,
-                    colors=colors
-                )
+                # if contact_pos is not None:
+                #     vis_forces = [
+                #         R_slope @ np.concatenate([[0, 0], F_desired_contact]),
+                #         R_slope @ np.concatenate([[0, 0], control_force_compensation]),
+                #         R_slope @ np.concatenate([[0, 0], verlociy_term]),
+                #     ]
+                #     positions = [
+                #         contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
+                #         contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)
+                #         contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
+                #     ]
+                #     colors = [
+                #         np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
+                #         np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
+                #         np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
+                #     ]
+                #     visualize_normal_arrow(
+                #         scene=scene,
+                #         arrows_pos_world=positions,
+                #         arrows_vec_world=vis_forces,
+                #         colors=colors
+                #     )
 
                 # Add gravity compensation.
                 if gravity_compensation:

@@ -3,7 +3,59 @@ import numpy as np
 from scipy.linalg import pinv
 import mujoco
 import xml.etree.ElementTree as ET
-from IPython.display import display, Math 
+from IPython.display import display, Math
+
+
+def constraint_jacobian(jac, pos, cylinder_center):
+    """
+    jacobian_func: function that returns geometric Jacobian J(q) [3×n]
+    """
+    J = jac[:3]  # [3×n] for position
+
+    y, z = pos[1], pos[2]
+    y0, z0 = cylinder_center[1], cylinder_center[2]
+
+    # Gradient in task space
+    grad_phi = np.array([0, 2 * (y - y0), 2 * (z - z0)])
+
+    # Constraint Jacobian: J_Φ = ∇_x Φ^T · J(q)
+    J_phi = grad_phi @ J  # [1×n]
+
+    return J_phi
+
+def get_unconstrained_jacobian(J_task, pos, cylinder_center, cylinder_radius):
+    """
+    J_task: full task Jacobian [m×n], e.g., [6×n] for position + orientation
+    J_phi: constraint Jacobian [c×n], e.g., [1×n]
+
+    Returns: J_x [m-c×n]
+    """
+
+    # Method 1: Use cylindrical coordinates
+    # Extract position Jacobian
+    J_pos = J_task[0:3, :]  # [x, y, z] part
+    J_ori = J_task[3:6, :]  # orientation part
+
+    # Get current position
+    y, z = pos[1], pos[2]
+    y0, z0 = cylinder_center[1], cylinder_center[2]
+    r = cylinder_radius
+
+    # Jacobian for x-coordinate (unconstrained)
+    J_x_coord = J_pos[0, :]  # [1×n]
+
+    # Jacobian for angle θ around cylinder
+    # θ = atan2(z - z0, y - y0)
+    # ∂θ/∂q = -(z-z0)/r² · ∂y/∂q + (y-y0)/r² · ∂z/∂q
+    J_theta = (-(z - z0) * J_pos[1, :] + (y - y0) * J_pos[2, :]) / r ** 2  # [1×n]
+
+    # Stack unconstrained Jacobians
+    if J_ori is not None:
+        J_x = np.vstack([J_x_coord, J_theta, J_ori])  # [5×n]
+    else:
+        J_x = np.vstack([J_x_coord, J_theta])  # [2×n]
+
+    return J_x
 
 def generate_start_position(r, body_pos, size_z, R):
     theta = 0
@@ -63,6 +115,31 @@ def add_slope_xml(xml_path, euler, size_z, r, body_pos):
 
     # WRITE to file for debug
     new_xml_path = "./kuka_iiwa_14/table_slope_auto.xml"
+    tree.write(new_xml_path, encoding="utf-8", xml_declaration=True)
+    return new_xml_path
+
+def add_cylinder_xml(xml_path, euler, size, body_pos):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    worldbody = root.find("worldbody")
+    cylinder_body = ET.fromstring(f"""
+        <body name="cylinder_body" pos="{body_pos[0]} {body_pos[1]} {body_pos[2]}" euler="{euler[0]} {euler[1]} {euler[2]}">
+            <geom name="cylinder_geom"
+                type="cylinder"
+                size="{size[0]} {size[1]}"
+                rgba="0.8 0.2 0.2 1"
+                contype="1" conaffinity="1"/>
+        </body>
+        """)
+    worldbody.append(cylinder_body)
+    R = euler_to_rot_matrix(euler)
+    sites_xml = generate_trajectory_marks(size[0], 0, R, body_pos)
+    sites_root = ET.fromstring(sites_xml)
+    for site in sites_root:
+        worldbody.append(site)
+
+    # WRITE to file for debug
+    new_xml_path = "./kuka_iiwa_14/cylinder_auto.xml"
     tree.write(new_xml_path, encoding="utf-8", xml_declaration=True)
     return new_xml_path
 

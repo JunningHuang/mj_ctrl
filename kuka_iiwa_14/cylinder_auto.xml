@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="iiwa14 scene">
+  <include file="iiwa14.xml" />
+  <include file="../furniture_sim/simpleTable/simpleTable_asset.xml" />
+
+  <statistic center="0.3 0 0.4" extent="0.8" meansize="0.05" />
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0" />
+    <global azimuth="120" elevation="-20" />
+  </visual>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
+    <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" />
+  </asset>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300" />
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2" />
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true" />
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" />
+  <body name="cylinder_body" pos="0.5 0.0 0.45" euler="0.0 -1.5707963267948966 0.0">
+            <geom name="cylinder_geom" type="cylinder" size="0.1 0.1" rgba="0.8 0.2 0.2 1" contype="1" conaffinity="1" />
+        </body><site name="circle_0" pos="0.5000 0.0000 0.5500" size="0.003" rgba="0 0 1 1" />
+<site name="circle_1" pos="0.5000 0.0309 0.5451" size="0.003" rgba="0 0 1 1" />
+<site name="circle_2" pos="0.5000 0.0588 0.5309" size="0.003" rgba="0 0 1 1" />
+<site name="circle_3" pos="0.5000 0.0809 0.5088" size="0.003" rgba="0 0 1 1" />
+<site name="circle_4" pos="0.5000 0.0951 0.4809" size="0.003" rgba="0 0 1 1" />
+<site name="circle_5" pos="0.5000 0.1000 0.4500" size="0.003" rgba="0 0 1 1" />
+<site name="circle_6" pos="0.5000 0.0951 0.4191" size="0.003" rgba="0 0 1 1" />
+<site name="circle_7" pos="0.5000 0.0809 0.3912" size="0.003" rgba="0 0 1 1" />
+<site name="circle_8" pos="0.5000 0.0588 0.3691" size="0.003" rgba="0 0 1 1" />
+<site name="circle_9" pos="0.5000 0.0309 0.3549" size="0.003" rgba="0 0 1 1" />
+<site name="circle_10" pos="0.5000 0.0000 0.3500" size="0.003" rgba="0 0 1 1" />
+<site name="circle_11" pos="0.5000 -0.0309 0.3549" size="0.003" rgba="0 0 1 1" />
+<site name="circle_12" pos="0.5000 -0.0588 0.3691" size="0.003" rgba="0 0 1 1" />
+<site name="circle_13" pos="0.5000 -0.0809 0.3912" size="0.003" rgba="0 0 1 1" />
+<site name="circle_14" pos="0.5000 -0.0951 0.4191" size="0.003" rgba="0 0 1 1" />
+<site name="circle_15" pos="0.5000 -0.1000 0.4500" size="0.003" rgba="0 0 1 1" />
+<site name="circle_16" pos="0.5000 -0.0951 0.4809" size="0.003" rgba="0 0 1 1" />
+<site name="circle_17" pos="0.5000 -0.0809 0.5088" size="0.003" rgba="0 0 1 1" />
+<site name="circle_18" pos="0.5000 -0.0588 0.5309" size="0.003" rgba="0 0 1 1" />
+<site name="circle_19" pos="0.5000 -0.0309 0.5451" size="0.003" rgba="0 0 1 1" />
+</worldbody>
+</mujoco>
