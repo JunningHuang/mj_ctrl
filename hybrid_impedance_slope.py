@@ -33,7 +33,7 @@ dt: float = 0.002
 def main() -> None:
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
     # constraint geometry
-    euler = np.array([np.deg2rad(-5), 0, 0])
+    euler = np.array([np.deg2rad(-10), 0, 0])
     R_slope = euler_to_rot_matrix(euler)
     size_z = 0.01
 

@@ -14,6 +14,7 @@ import logging
 from utils import *
 import matplotlib.pyplot as plt
 from geom_visualizer import visualize_normal_arrow, reset_scene
+from Jac_estimator import HybridControllerWithNumericalJacobians
 
 # Configure the logger
 # logging.basicConfig(
@@ -50,7 +51,7 @@ def main() -> None:
 
     # tracjectory
     # ---------- start position -----------#
-    use_table = True
+    use_table = False
 
     target_pos = generate_start_position(circle_radius, circle_center, size_z, R_cylinder)
     # target_pos = np.array([0.6500, -0.0050, 0.5587])  # size_z = 0.01
@@ -188,8 +189,11 @@ def main() -> None:
     S_vc[3, 2] = 1
     S_vc[4, 3] = 1
     S_vc[5, 4] = 1
+    # S_f = S_fc
+    # S_v = S_vc
     # S_fc = np.zeros((6, 0))
     # S_vc = np.eye(6)
+
 
 
     # check phi_ddot if it's zero
@@ -210,6 +214,16 @@ def main() -> None:
         # Reset the free camera.
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
 
+        # Cylinder parameters
+        cylinder_params = {
+            'center': [0.5, 0.0, 0.45],
+            'radius': 0.1
+        }
+        mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
+        # Create controller
+        controller = HybridControllerWithNumericalJacobians(
+            model, cylinder_params, jac=jac, use_rls=False
+        )
         # # Enable site frame visualization.
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
         while viewer.is_running():
@@ -234,29 +248,29 @@ def main() -> None:
                 elapsed_time = data.time - circle_start_time
                 if elapsed_time < circle_duration:
                     # numerical stability
-                    angle = (np.pi / 2) * np.sin(angular_speed * elapsed_time)
+                    angle = (np.pi / 4) * np.sin(angular_speed * elapsed_time)
                     angle_dot = (np.pi / 2) * angular_speed * np.cos(angular_speed * elapsed_time)
                     angle_ddot = -(np.pi / 2) * angular_speed ** 2 * np.sin(angular_speed * elapsed_time)
                     # x 
-                    target_pos_local[0] = circle_radius * np.cos(angle)
+                    target_pos_local[0] = 0.0
                     target_pos_local[1] = circle_radius * np.sin(angle)
-                    target_pos_local[2] = size_z # Keep Z at table height
+                    target_pos_local[2] = circle_radius * np.cos(angle) # Keep Z at table height
                     # x_dot
-                    x_dot_desired_local[0] = -circle_radius * np.sin(angle) * angle_dot
+                    x_dot_desired_local[0] = 0.0
                     x_dot_desired_local[1] =  circle_radius * np.cos(angle) * angle_dot
-                    x_dot_desired_local[2] = 0.0
+                    x_dot_desired_local[2] = -circle_radius * np.sin(angle) * angle_dot
                     # x_ddot
-                    x_ddot_desired_local[0] = -circle_radius * (
-                            np.cos(angle) * angle_dot**2 + np.sin(angle) * angle_ddot
-                    )
+                    x_ddot_desired_local[0] = 0.0
                     x_ddot_desired_local[1] = circle_radius * (
                             -np.sin(angle) * angle_dot**2 + np.cos(angle) * angle_ddot
                     )
-                    x_ddot_desired_local[2] = 0.0
+                    x_ddot_desired_local[2] = -circle_radius * (
+                            np.cos(angle) * angle_dot**2 + np.sin(angle) * angle_ddot
+                    )
 
-                    target_pos[:] = circle_center + (R_cylinder @ target_pos_local)
-                    x_dot_desired[:] = R_cylinder @ x_dot_desired_local
-                    x_ddot_desired[:] = R_cylinder @ x_ddot_desired_local
+                    target_pos[:] = circle_center + target_pos_local
+                    x_dot_desired[:] = x_dot_desired_local
+                    x_ddot_desired[:] = x_ddot_desired_local
 
                     radial_vector = target_pos - circle_center
                     surface_normal = radial_vector / np.linalg.norm(radial_vector)
@@ -264,17 +278,33 @@ def main() -> None:
                     x_axis = np.array([1.0, 0.0, 0.0])
                     y_axis = np.cross(approach_direction, x_axis)
                     R_slope = np.column_stack([x_axis, y_axis, approach_direction])
-                    # mujoco.mju_mat2Quat(quat_slope, R_slope.flatten())
-                    # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
+                    mujoco.mju_mat2Quat(quat_slope, R_slope.flatten())
+                    mujoco.mju_mulQuat(target_quat, quat_slope, np.array([0., 1., 0., 0.]))
                     # R_slope = euler_to_rot_matrix(euler_slope)
-                    # R = np.zeros((6, 6))
-                    # R[0:3, 0:3] = R_slope
-                    # # R[3:6, 3:6] = R_slope
+                    R = np.zeros((6, 6))
+                    R[0:3, 0:3] = R_slope
+                    R[3:6, 3:6] = R_slope
 
 
                     # quat_slope = np.zeros(4)
                     # mujoco.mju_euler2Quat(quat_slope, euler_slope, 'XYZ')  # slope rotatio
                     # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)  # Note that the height of the table is 0.45m
+                    pos = data.site(site_id).xpos.copy()
+                    dy = pos[1] - circle_center[1]
+                    dz = pos[2] - circle_center[2]
+                    # r_sq = circle_radius**2
+                    # S_v = R @ S_vc
+                    S_f = np.array([[0, dy/circle_radius, dz/circle_radius, 0, 0, 0]]).T
+                    # S_f = R @ S_fc
+                    S_v = S_vc = np.array([
+                        [1, 0,   0,   0, 0, 0],  # x-direction (axial along cylinder)
+                        [0, -dz/circle_radius, dy/circle_radius, 0, 0, 0],  # tangential direction in y-z plane
+                        [0, 0,   0,   1, 0, 0],  # rotation about x-axis
+                        [0, 0,   0,   0, 1, 0],  # rotation about y-axis
+                        [0, 0,   0,   0, 0, 1]   # rotation about z-axis
+                    ]).T
+                    # S_f = S_fc
+
                 else:
                     x_dot_desired[:] = np.zeros(3)
                     x_ddot_desired[:] = np.zeros(3)
@@ -308,7 +338,6 @@ def main() -> None:
                 # Compute generalized forces.
                 tau = jac.T @ Mx @ (Kp * twist - Kd * (jac @ data.qvel[dof_ids]))
                 # Add joint task in nullspace.
-                # TODO: inverse kinematics to track q0 over time, so ee orientation can't be kept
                 Jbar = M_inv @ jac.T @ Mx
                 ddq = null_space_tau(data, q0, dof_ids, Kp_null, Kd_null)
                 tau += (np.eye(model.nv) - jac.T @ Jbar.T) @ ddq
@@ -327,9 +356,9 @@ def main() -> None:
                 mujoco.mj_jacSite(model, data, jac[:3], jac[3:], site_id)
                 # jac 
                 # J_phi = A @ jac
-                J_phi = constraint_jacobian(jac, data.site(site_id).xpos.copy(), circle_center)
-                J_motion = get_unconstrained_jacobian(jac, data.site(site_id).xpos.copy(),
-                                                      circle_center, circle_radius)
+                J_phi = S_f.T @ jac
+                J_motion = S_v.T @ jac
+                # J_phi, J_motion = controller.update_jacobians(data, dt)
                 jac_1 = np.vstack([J_phi, J_motion]) # stacked phi and motion jacobi as one
                 # according to paper equation (9), only null space Jacobian needs to be derived
 
@@ -360,6 +389,7 @@ def main() -> None:
                     )
                 
                 x_ddot_desired_sel = np.concatenate([x_ddot_desired, [0,0,0]]) @ S_v
+                # x_ddot_desired_sel = np.concatenate([x_ddot_desired_local, [0,0,0]])
                 x_tilde = twist @ S_v
                 site_vel = jac @ data.qvel[dof_ids] #[vx, vy, vz, wx, wy, wz]
                 x_dot_tilde = (np.concatenate([x_dot_desired, [0,0,0]]) - site_vel) @ S_v
@@ -398,30 +428,31 @@ def main() -> None:
                 #------------------------------------------------------
                 # Constraint space
                 #------------------------------------------------------
-                # Mx_constraint = task_space_inertiaM(M_inv, J_phi) # lambda_phi
-                # C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel)
-                # # F_desired_contact = np.array([-10.0, 0, 0])
-                # # F_desired_contact = np.array([-10.0])
-                # # F_ctrl_constraint = F_desired_contact
-                # # computeJointJacobiansTimeVariation
-                # # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
-                # # ----------------- bruno's method -----------------------
+                Mx_constraint = task_space_inertiaM(M_inv, J_phi) # lambda_phi
+                C = pino.computeCoriolisMatrix(pino_model, pino_data, data.qpos, data.qvel)
+                # F_desired_contact = np.array([-10.0, 0, 0])
+                # F_desired_contact = np.array([-10.0])
+                # F_ctrl_constraint = F_desired_contact
+                # computeJointJacobiansTimeVariation
+                # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
+                # ----------------- bruno's method -----------------------
                 # pino_frame_id = 0 # pino_model.getFrameId("attachment")
-                # J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
-                # J_phi_dot = S_f.T @ J_dot
-                # # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
-                # # remove rotation related force
-                # F_ext_x_new = F_ext_x.copy()
-                # F_ext_x_new[-3:] = 0
-                # control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                # contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                # # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
-                # F_ctrl_constraint = (
-                #     F_desired_contact +
-                #     control_force_compensation +
-                #     contact_force_compensation + verlociy_term
-                # )
+                pino_frame_id = pino_model.getFrameId("attachment")
+                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+                J_phi_dot = S_f.T @ J_dot
+                # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
+                # remove rotation related force
+                F_ext_x_new = F_ext_x.copy()
+                F_ext_x_new[-3:] = 0
+                control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
+                contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
+                F_ctrl_constraint = (
+                    F_desired_contact +
+                    control_force_compensation +
+                    contact_force_compensation + verlociy_term
+                )
                 # --------------------- PI term -------------------------------
                 # # F_ctrl_constraint = F_desired_contact.copy()
                 # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
@@ -439,9 +470,9 @@ def main() -> None:
                 #------------------------------
                 # Sum up all subspace
                 #------------------------------
-                # tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+                tau = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
                 # ----- test only motion space control ------
-                tau = tau_ctrl_x + tau_ctrl_v
+                # tau = tau_ctrl_x
                 # tau += tau_ctrl_v
 
                 # Visualize the force command
