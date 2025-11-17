@@ -85,7 +85,7 @@ class ControllerConfig:
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.45])
+            self.circle_center = np.array([0.4, 0.0, 0.45])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(-10), 0, 0])
 
@@ -236,7 +236,6 @@ class CartesianSpacePDController:
             self.tau = np.zeros(self.n_joints)
 
             # Get home configuration
-            key_id = model.key("home").id
             self.q0 = model.key("home").qpos.copy()
 
             print(f"[APPROACH INIT] Controller initialized")
@@ -303,6 +302,9 @@ class CartesianSpacePDController:
         # ============================================================
         self.tau[:] = self.jac.T @ self.Mx @ (
                 self.config.Kp * twist - self.config.Kd * (self.jac @ self.data.qvel[self.dof_ids])
+        )
+        self.tau[:] = self.jac.T @ self.Mx @ (
+                self.config.Kp * twist
         )
 
         # ============================================================
@@ -401,9 +403,9 @@ class HybridController:
         self.is_drawing: bool = False
 
         # Preallocated workspace
-        self.jac: Optional[np.ndarray] = None
-        self.J_dot: Optional[np.ndarray] = None
-        self.M_inv: Optional[np.ndarray] = None
+        # self.jac: Optional[np.ndarray] = None
+        # self.J_dot: Optional[np.ndarray] = None
+        # self.M_inv: Optional[np.ndarray] = None
         self.tau: Optional[np.ndarray] = None
 
         # Data logging
@@ -496,9 +498,9 @@ class HybridController:
             # ============================================================
             # Preallocate Workspace
             # ============================================================
-            self.jac = np.zeros((6, model.nv))
-            self.J_dot = np.zeros((6, model.nv))
-            self.M_inv = np.zeros((model.nv, model.nv))
+            # self.jac = np.zeros((6, model.nv))
+            # self.J_dot = np.zeros((6, model.nv))
+            # self.M_inv = np.zeros((model.nv, model.nv))
             self.tau = np.zeros(self.n_joints)
 
             # Trajectory variables
@@ -786,7 +788,7 @@ def main() -> None:
     # ============================================================
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     if not common_config.use_table:
-        xml_path = "kuka_iiwa_14/scene_notable.xml"
+        xml_path = "franka_emika_panda/scene.xml"
         xml_path = add_slope_xml(
             xml_path,
             common_config.euler,
@@ -799,7 +801,7 @@ def main() -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = common_config.dt
 
-    pino_model = pino.buildModelFromMJCF("./kuka_iiwa_14/iiwa14.xml")
+    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
     pino_data = pino_model.createData()
 
     # Get robot structure
@@ -870,6 +872,9 @@ def main() -> None:
             model, data,
             show_left_ui=False, show_right_ui=False
     ) as viewer:
+        # Reset the simulation.
+        key_id = model.key("home").id
+        mujoco.mj_resetDataKeyframe(model, data, key_id)
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
 
         sim_time = 0.0
@@ -908,7 +913,7 @@ def main() -> None:
                     control_phase = ControlPhase.STOPPED
 
             else:  # STOPPED
-                tau = np.zeros(len(actuator_ids))
+                tau = data.qfrc_bias[dof_ids]
 
             # ============================================================
             # Apply Control and Step Simulation

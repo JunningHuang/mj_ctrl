@@ -4,6 +4,7 @@ from scipy.linalg import pinv
 import mujoco
 import xml.etree.ElementTree as ET
 from IPython.display import display, Math
+from pathlib import Path
 
 
 def constraint_jacobian(jac, pos, cylinder_center):
@@ -114,9 +115,9 @@ def add_slope_xml(xml_path, euler, size_z, r, body_pos):
         worldbody.append(site)
 
     # WRITE to file for debug
-    new_xml_path = "./kuka_iiwa_14/table_slope_auto.xml"
+    new_xml_path = Path(xml_path).with_name("table_slope_auto.xml")
     tree.write(new_xml_path, encoding="utf-8", xml_declaration=True)
-    return new_xml_path
+    return str(new_xml_path)
 
 def add_cylinder_xml(xml_path, euler, size, body_pos):
     tree = ET.parse(xml_path)
