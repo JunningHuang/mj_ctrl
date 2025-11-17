@@ -101,12 +101,25 @@ class CartesianSpacePDControlConfig:
     where twist is computed from pose error with gain Kpos.
     """
     Kpos: float = 0.5  # Position error gain
-    Kp: float = 1.0  # Task space proportional gain
-    Kd: float = 1.0  # Task space derivative gain
+    Kp: np.ndarray = None  # Task space proportional gain
+    Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
     Kd_null: np.ndarray = None
+    impedance_pos: np.ndarray = None
+    impedance_ori: np.ndarray = None
 
     def __post_init__(self):
+        if self.impedance_pos is None:
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
+        if self.impedance_ori is None:
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
+        if self.Kp is None:
+            self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
+        if  self.Kd is None:
+            damping_ratio = 1.0
+            damping_pos = damping_ratio * 2 * np.sqrt(self.impedance_pos)
+            damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
+            self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
         if self.Kd_null is None:
@@ -473,7 +486,7 @@ class HybridController:
             self.S_vc[3, 2] = 1  # rx rotation
             self.S_vc[4, 3] = 1  # ry rotation
             self.S_vc[5, 4] = 1  # rz rotation
-
+            self.R = np.zeros((6, 6))
             self.R[0:3, 0:3] = self.R_slope
             self.R[3:6, 3:6] = self.R_slope
             self.S_f = self.R @ self.S_fc
@@ -576,12 +589,12 @@ class HybridController:
         mujoco.mj_jacSite(self.model, self.data, jac[:3], jac[3:], self.site_id)
         mujoco.mj_solveM(self.model, self.data, M_inv, np.eye(self.model.nv))
 
-        Mx_constraint = task_space_inertiaM(M_inv, self.J_phi)
-        Mx_motion = task_space_inertiaM(M_inv, self.J_motion)
-
         J_phi = self.S_f.T @ jac
         J_motion = self.S_v.T @ jac
         jac_1 = np.vstack([J_phi, J_motion])
+
+        Mx_constraint = task_space_inertiaM(M_inv, J_phi)
+        Mx_motion = task_space_inertiaM(M_inv, J_motion)
 
         # ============================================================
         # 4. Get Contact Information
@@ -591,7 +604,7 @@ class HybridController:
         else:
             current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
         F_ext_phi = current_force_local @ self.S_fc
-        F_ext_x = current_force_local @ self.f_vc
+        F_ext_x = current_force_local @ self.S_vc
         F_ext_v = None
 
         # ============================================================
