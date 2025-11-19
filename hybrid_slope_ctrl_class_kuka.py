@@ -65,14 +65,14 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.001
+    dt: float = 0.002
     gravity_compensation: bool = True
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi/4
+    angular_speed: float = np.pi
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -148,9 +148,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -652,7 +652,7 @@ class HybridController:
         F_ext_x_new = F_ext_x.copy()
         F_ext_x_new[-3:] = 0
         control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-        contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+        contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
         verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ self.data.qvel.copy()
         F_ctrl_constraint = (
             self.config.F_desired_contact +
@@ -788,7 +788,7 @@ def main() -> None:
     # ============================================================
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     if not common_config.use_table:
-        xml_path = "franka_emika_panda/scene.xml"
+        xml_path = "kuka_iiwa_14/scene_notable.xml"
         xml_path = add_slope_xml(
             xml_path,
             common_config.euler,
@@ -801,7 +801,7 @@ def main() -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = common_config.dt
 
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("kuka_iiwa_14/iiwa14.xml")
     pino_data = pino_model.createData()
 
     # Get robot structure

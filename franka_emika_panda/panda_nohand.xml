@@ -186,6 +186,8 @@
                     <geom mesh="link7_7" material="white" class="panda/visual"/>
                     <geom mesh="link7_c" class="panda/collision"/>
                     <body name="attachment" pos="0 0 0.107" quat="0.3826834 0 0 0.9238795">
+                      <geom name="attachment_visual" class="panda/visual" type="sphere" size="0.01" rgba="0.8 0.2 0.2 1"/>
+                      <geom name="attachment_collision" class="panda/collision" type="sphere" size="0.01" rgba="0.8 0.2 0.2 1" priority="1" solimp="0.015 1 0.02" condim="6" friction="1 0.02 0.01" />
                       <site name="attachment_site" rgba="1 0 0 1" size="0.01" group="1" quat="0 0 0 1"/>
                     </body>
                   </body>
@@ -199,16 +201,16 @@
   </worldbody>
 
   <actuator>
-    <position class="big_joint" name="joint1" joint="joint1" forcerange="-87 87" ctrlrange="-2.8973 2.8973"/>
-    <position class="big_joint" name="joint2" joint="joint2" forcerange="-87 87" ctrlrange="-1.7628 1.7628"/>
-    <position class="big_joint" name="joint3" joint="joint3" forcerange="-87 87" ctrlrange="-2.8973 2.8973"/>
-    <position class="big_joint" name="joint4" joint="joint4" forcerange="-87 87" ctrlrange="-3.0718 -0.0698"/>
-    <position class="small_joint" name="joint5" joint="joint5" forcerange="-12 12" ctrlrange="-2.8973 2.8973"/>
-    <position class="small_joint" name="joint6" joint="joint6" forcerange="-12 12" ctrlrange="-0.0175 3.7525"/>
-    <position class="small_joint" name="joint7" joint="joint7" forcerange="-12 12" ctrlrange="-2.8973 2.8973"/>
+    <motor name="joint1" joint="joint1" ctrlrange="-87 87"/>
+    <motor name="joint2" joint="joint2" ctrlrange="-87 87"/>
+    <motor name="joint3" joint="joint3" ctrlrange="-87 87"/>
+    <motor name="joint4" joint="joint4" ctrlrange="-87 87"/>
+    <motor name="joint5" joint="joint5" ctrlrange="-12 12"/>
+    <motor name="joint6" joint="joint6" ctrlrange="-12 12"/>
+    <motor name="joint7" joint="joint7" ctrlrange="-12 12"/>
   </actuator>
 
   <keyframe>
-    <key name="home" qpos="0 0 0 -1.57079 0 1.57079 -0.7853" ctrl="0 0 0 -1.57079 0 1.57079 -0.7853"/>
+    <key name="home" qpos="0 0 0 -1.57079 0 1.57079 -0.7853"/>
   </keyframe>
 </mujoco>
