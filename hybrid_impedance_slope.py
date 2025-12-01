@@ -201,12 +201,12 @@ def main() -> None:
     phi_vel_history = []
     ee_phis = []
 
-    with mujoco.viewer.launch_passive(
+    with (mujoco.viewer.launch_passive(
         model=model,
         data=data,
         # show_left_ui=False,
         # show_right_ui=False,
-    ) as viewer:
+    ) as viewer):
         scene = viewer.user_scn
         ngeom_init = scene.ngeom
         # Reset the simulation.
@@ -386,7 +386,9 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                pino_frame_id = 0 # pino_model.getFrameId("attachment")
+                pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
+                pino.updateFramePlacements(pino_model, pino_data)
+                pino_frame_id = pino_model.getFrameId("attachment")
                 J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
                 J_phi_dot = S_f.T @ J_dot
                 # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
@@ -395,8 +397,10 @@ def main() -> None:
                 F_ext_x_new[-3:] = 0
                 control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
                 contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
+                verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                #verlociy_term = - Mx_constraint @ J_phi_dot @ data.qvel.copy()
+                #- Mx_constraint @ J_phi_dot @ data.qvel.copy()
+                #1 * Mx_constraint @ (J_phi @ M_inv @ C) @ data.qvel.copy()
                 F_ctrl_constraint = (
                     F_desired_contact +
                     control_force_compensation +
