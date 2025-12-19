@@ -2,7 +2,7 @@
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
 # ------------------------------------------------------------------------------
-
+import argparse
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -15,6 +15,7 @@ from enum import Enum
 from utils import *
 import matplotlib.pyplot as plt
 from geom_visualizer import visualize_normal_arrow, reset_scene
+from pylibfranka import Robot, Torques, RealtimeConfig
 
 def generate_circle_trajectory(elapsed_time: float,
                                circle_center: np.ndarray,
@@ -72,7 +73,7 @@ class ControllerConfig:
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi/4
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -177,13 +178,13 @@ class CartesianSpacePDController:
         self.config = config
         self.common_config = common_config
 
-        # Robot structure (set in init)
-        self.model: Optional[mujoco.MjModel] = None
-        self.data: Optional[mujoco.MjData] = None
-        self.site_id: int = -1
-        self.dof_ids: Optional[np.ndarray] = None
-        self.actuator_ids: Optional[np.ndarray] = None
-        self.n_joints: int = 7
+        # # Robot structure (set in init)
+        # self.model: Optional[mujoco.MjModel] = None
+        # self.data: Optional[mujoco.MjData] = None
+        # self.site_id: int = -1
+        # self.dof_ids: Optional[np.ndarray] = None
+        # self.actuator_ids: Optional[np.ndarray] = None
+        # self.n_joints: int = 7
 
         # Target pose
         self.target_pos: Optional[np.ndarray] = None
@@ -191,63 +192,16 @@ class CartesianSpacePDController:
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
         # Preallocated workspace
-        self.jac: Optional[np.ndarray] = None
-        self.M_inv: Optional[np.ndarray] = None
-        self.Mx: Optional[np.ndarray] = None
-        self.tau: Optional[np.ndarray] = None
+        # self.jac: Optional[np.ndarray] = None
+        # self.M_inv: Optional[np.ndarray] = None
+        # self.Mx: Optional[np.ndarray] = None
+        self.tau: np.ndarray = np.zeros(7)
 
         # Data logging
         self.ee_positions: list = []
         self.target_positions: list = []
 
-    def init(
-            self,
-            model: mujoco.MjModel,
-            data: mujoco.MjData,
-            site_id: int,
-            dof_ids: np.ndarray,
-            actuator_ids: np.ndarray
-    ) -> bool:
-        """
-        Initialize controller with robot model.
-
-        Args:
-            model: MuJoCo model
-            data: MuJoCo data
-            site_id: End-effector site ID
-            dof_ids: Joint DOF IDs
-            actuator_ids: Actuator IDs
-
-        Returns:
-            True if successful
-        """
-        try:
-            self.model = model
-            self.data = data
-            self.site_id = site_id
-            self.dof_ids = dof_ids
-            self.actuator_ids = actuator_ids
-            self.n_joints = len(dof_ids)
-
-            # Preallocate workspace
-            self.jac = np.zeros((6, model.nv))
-            self.M_inv = np.zeros((model.nv, model.nv))
-            self.Mx = np.zeros((6, 6))
-            self.tau = np.zeros(self.n_joints)
-
-            # Get home configuration
-            self.q0 = model.key("home").qpos.copy()
-
-            print(f"[APPROACH INIT] Controller initialized")
-            print(f"  - Kpos={self.config.Kpos}, Kp={self.config.Kp}, Kd={self.config.Kd}")
-
-            return True
-
-        except Exception as e:
-            print(f"[APPROACH INIT] Failed: {e}")
-            return False
-
-    def starting(self, target_pos: np.ndarray, target_quat: np.ndarray) -> None:
+    def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray) -> None:
         """
         Reset controller state.
 
@@ -257,85 +211,98 @@ class CartesianSpacePDController:
         """
         self.target_pos = target_pos.copy()
         self.target_quat = target_quat.copy()
+        self.q0 = q0.copy()
 
         # Clear logging
         self.ee_positions = []
         self.target_positions = []
 
-        # Zero control
-        self.tau[:] = 0.0
-
         print(f"[APPROACH START] Target position: {self.target_pos}")
         print(f"[APPROACH START] Target quaternion: {self.target_quat}")
 
-    def update(self) -> np.ndarray:
+    def update(self, robot_state, model) -> np.ndarray:
         """
         Compute control torques for approaching target.
 
         Returns:
             Control torques
         """
+        # Get current state
+        q = np.array(robot_state.q)
+        dq = np.array(robot_state.dq)
+
         # ============================================================
         # 1. Compute End-Effector Pose Error
         # ============================================================
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        current_pos = O_T_EE[:3, 3]
+        current_mat = O_T_EE[:3, :3]
         twist = compute_ee_pose_error(
             self.target_pos,
-            self.data.site(self.site_id).xpos.copy(),
+            current_pos,
             self.target_quat,
-            self.data.site(self.site_id).xmat.copy(),
+            current_mat,
             Kpos=self.config.Kpos
         )
 
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
-        mujoco.mj_jacSite(self.model, self.data, self.jac[:3], self.jac[3:], self.site_id)
+        jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
         # ============================================================
-        mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
-        self.Mx = task_space_inertiaM(self.M_inv, self.jac)
+        # TODO: how to cal M_inv without mujoco
+        # mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
+        # self.Mx = task_space_inertiaM(self.M_inv, self.jac)
+        mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
+        M_inv = np.linalg.inv(mass_matrix)
+        Mx = task_space_inertiaM(M_inv, jac)
 
         # ============================================================
         # 4. Compute Task-Space Control
         # ============================================================
-        self.tau[:] = self.jac.T @ self.Mx @ (
-                self.config.Kp * twist - self.config.Kd * (self.jac @ self.data.qvel[self.dof_ids])
+        self.tau[:] = jac.T @ Mx @ (
+                self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
-        # self.tau[:] = self.jac.T @ self.Mx @ (
-        #         self.config.Kp * twist
-        # )
 
         # ============================================================
         # 5. Add Nullspace Control
         # ============================================================
-        Jbar = self.M_inv @ self.jac.T @ self.Mx
-        ddq = null_space_tau(self.data.qpos[self.dof_ids], self.data.qvel[self.dof_ids], self.q0, self.config.Kp_null, self.config.Kd_null)
-        self.tau += (np.eye(self.model.nv) - self.jac.T @ Jbar.T) @ ddq
+        Jbar = M_inv @ jac.T @ Mx
+        ddq = null_space_tau(
+            q,
+            dq,
+            self.q0,
+            self.config.Kp_null,
+            self.config.Kd_null
+        )
+        self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
 
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
         if self.common_config.gravity_compensation:
-            self.tau += self.data.qfrc_bias[self.dof_ids]
+            self.tau += np.array(model.gravity(robot_state))
 
         # ============================================================
         # 7. Log Data
         # ============================================================
-        self.ee_positions.append(self.data.site(self.site_id).xpos.copy())
+        self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
 
         return self.tau
 
-    def is_target_reached(self) -> bool:
+    def is_target_reached(self, robot_state) -> bool:
         """
         Check if end-effector has reached target position.
 
         Returns:
             True if within tolerance
         """
-        current_pos = self.data.site(self.site_id).xpos
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        current_pos = O_T_EE[:3, 3]
         distance = np.linalg.norm(current_pos - self.target_pos)
         return distance < self.common_config.position_tolerance
 
@@ -360,19 +327,9 @@ class HybridController:
         self.config = config
         self.common_config = common_config
 
-        # Robot structure (set in init)
-        self.model: Optional[mujoco.MjModel] = None
-        self.data: Optional[mujoco.MjData] = None
-        self.site_id: int = -1
-        self.dof_ids: Optional[np.ndarray] = None
-        self.actuator_ids: Optional[np.ndarray] = None
-        self.n_joints: int = 7
-
         # Control matrices
         self.Kp: Optional[np.ndarray] = None
         self.Kd: Optional[np.ndarray] = None
-        self.K_material: Optional[np.ndarray] = None
-        self.Compliance_matrix: Optional[np.ndarray] = None
 
         # Selection matrices
         self.S_fc: Optional[np.ndarray] = None
@@ -397,9 +354,6 @@ class HybridController:
         self.is_drawing: bool = False
 
         # Preallocated workspace
-        # self.jac: Optional[np.ndarray] = None
-        # self.J_dot: Optional[np.ndarray] = None
-        # self.M_inv: Optional[np.ndarray] = None
         self.tau: Optional[np.ndarray] = None
 
         # Data logging
@@ -412,16 +366,7 @@ class HybridController:
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
 
-    def init(
-            self,
-            model: mujoco.MjModel,
-            data: mujoco.MjData,
-            pino_model: pino.Model,
-            pino_data: pino.Data,
-            site_id: int,
-            dof_ids: np.ndarray,
-            actuator_ids: np.ndarray
-    ) -> bool:
+    def init(self, q0: np.ndarray) -> bool:
         """
         Initialize controller with robot model.
 
@@ -436,15 +381,7 @@ class HybridController:
             True if successful
         """
         try:
-            self.model = model
-            self.data = data
-            self.pino_model = pino_model
-            self.pino_data = pino_data
-            self.site_id = site_id
-            self.dof_ids = dof_ids
-            self.actuator_ids = actuator_ids
-            self.n_joints = len(dof_ids)
-
+            self.q0 = q0.copy()
             # ============================================================
             # Setup Control Gains
             # ============================================================
@@ -452,16 +389,6 @@ class HybridController:
             damping_ori = self.config.damping_ratio * 2 * np.sqrt(self.config.impedance_ori)
             self.Kp = np.concatenate([self.config.impedance_pos, self.config.impedance_ori])
             self.Kd = np.concatenate([damping_pos, damping_ori])
-
-            # ============================================================
-            # Setup Material Stiffness
-            # ============================================================
-            k_n = self.config.k_normal
-            self.K_material = np.diag([
-                k_n * 0.1, k_n * 0.1, k_n * 0.1,  # xyz
-                k_n * 0.01, k_n * 0.01, k_n * 0.01  # rotations
-            ])
-            self.Compliance_matrix = np.linalg.inv(self.K_material)
 
             # ============================================================
             # Setup Constraint Geometry
@@ -482,9 +409,11 @@ class HybridController:
             self.S_vc[3, 2] = 1  # rx rotation
             self.S_vc[4, 3] = 1  # ry rotation
             self.S_vc[5, 4] = 1  # rz rotation
+            # Rotation matrix for 6D space
             self.R = np.zeros((6, 6))
             self.R[0:3, 0:3] = self.R_slope
             self.R[3:6, 3:6] = self.R_slope
+            # Transform to world frame
             self.S_f = self.R @ self.S_fc
             self.S_v = self.R @ self.S_vc
             
@@ -495,18 +424,15 @@ class HybridController:
             # self.jac = np.zeros((6, model.nv))
             # self.J_dot = np.zeros((6, model.nv))
             # self.M_inv = np.zeros((model.nv, model.nv))
-            self.tau = np.zeros(self.n_joints)
+            self.tau = np.zeros(7)
 
             # Trajectory variables
             self.x_dot_desired = np.zeros(3)
             self.x_ddot_desired = np.zeros(3)
 
             # Get home configuration
-            self.q0 = model.key("home").qpos.copy()
-
             print(f"[CIRCLE INIT] Controller initialized")
             print(f"  - Force control: F_desired={self.config.F_desired_contact}")
-            print(f"  - Material stiffness: k_normal={self.config.k_normal}")
 
             return True
 
@@ -546,7 +472,7 @@ class HybridController:
         print(f"[CIRCLE START] Center: {self.common_config.circle_center}")
         print(f"[CIRCLE START] Radius: {self.common_config.circle_radius}")
 
-    def update(self, current_time: float) -> np.ndarray:
+    def update(self, current_time: float, robot_state, model) -> np.ndarray:
         """
         Compute control torques for circle drawing.
 
@@ -577,13 +503,19 @@ class HybridController:
             self.x_ddot_desired[:] = 0.0
             self.is_drawing = False
 
+        # Get current state
+        q = np.array(robot_state.q)
+        dq = np.array(robot_state.dq)
+        # Get end-effector pose
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        current_pos = O_T_EE[:3, 3]
+        current_mat = O_T_EE[:3, :3]
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
-        M_inv = np.zeros((self.model.nv, self.model.nv))
-        jac = np.zeros((6, self.model.nv))
-        mujoco.mj_jacSite(self.model, self.data, jac[:3], jac[3:], self.site_id)
-        mujoco.mj_solveM(self.model, self.data, M_inv, np.eye(self.model.nv))
+        jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
+        mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
+        M_inv = np.linalg.inv(mass_matrix)
 
         J_phi = self.S_f.T @ jac
         J_motion = self.S_v.T @ jac
@@ -595,10 +527,13 @@ class HybridController:
         # ============================================================
         # 4. Get Contact Information
         # ============================================================
-        if self.common_config.use_table:
-            current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
-        else:
-            current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
+        # if self.common_config.use_table:
+        #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
+        # else:
+        #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
+        F_ext_world = np.array(robot_state.O_F_ext_hat_K)
+        # TODO
+        current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc
         F_ext_x = current_force_local @ self.S_vc
         F_ext_v = None
@@ -607,9 +542,8 @@ class HybridController:
         # Null Space torque
         # ============================================================
         jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
-        N2 = np.eye(self.model.nv) - jac_1.T @ jac_1_inv.T
-        tau_ctrl_v = null_space_tau(self.data.qpos[self.dof_ids], self.data.qvel[self.dof_ids], self.q0, self.config.Kp_null, self.config.Kd_null)
-        # null space projection
+        N2 = np.eye(7) - jac_1.T @ jac_1_inv.T
+        tau_ctrl_v = null_space_tau(q, dq, self.q0, self.config.Kp_null, self.config.Kd_null)
         tau_ctrl_v = N2 @ tau_ctrl_v
 
         #---------------------------------------------------
@@ -618,14 +552,14 @@ class HybridController:
         # Compute the motion-space inertia matrix for x-y plane
         twist = compute_ee_pose_error(
                     self.target_pos, 
-                    self.data.site(self.site_id).xpos.copy(),
+                    current_pos,
                     self.target_quat,
-                    self.data.site(self.site_id).xmat.copy()
+                    current_mat
                     )
         
         x_ddot_desired_sel = np.concatenate([self.x_ddot_desired, [0,0,0]]) @ self.S_v
         x_tilde = twist @ self.S_v
-        site_vel = jac @ self.data.qvel[self.dof_ids] #[vx, vy, vz, wx, wy, wz]
+        site_vel = jac @ dq #[vx, vy, vz, wx, wy, wz]
         x_dot_tilde = (np.concatenate([self.x_dot_desired, [0,0,0]]) - site_vel) @ self.S_v
         a_motion = feedforward_PD(
             x_acc_desired=x_ddot_desired_sel,x_delta=x_tilde,
@@ -638,16 +572,15 @@ class HybridController:
         #------------------------------------------------------
         # Constraint space
         #------------------------------------------------------
-        C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
-        pino_frame_id = 0 # pino_model.getFrameId("attachment")
-        J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
-        J_phi_dot = self.S_f.T @ J_dot
+        C = np.array(model.coriolis(robot_state))
+        # J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        # J_phi_dot = self.S_f.T @ J_dot
 
         F_ext_x_new = F_ext_x.copy()
         F_ext_x_new[-3:] = 0
         control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
         contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-        verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C) @ self.data.qvel.copy()
+        verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ dq
         F_ctrl_constraint = (
             self.config.F_desired_contact +
             control_force_compensation +
@@ -669,12 +602,11 @@ class HybridController:
         # 6. Add Gravity Compensation
         # ============================================================
         if self.common_config.gravity_compensation:
-            self.tau += self.data.qfrc_bias[self.dof_ids]
-
+            self.tau += np.array(model.gravity(robot_state))
         # ============================================================
         # 7. Log Data
         # ============================================================
-        self._log_data(current_force_local, contact_pos)
+        self._log_data(current_force_local, contact_pos=None)
 
         return self.tau
 
@@ -769,6 +701,12 @@ def plot_results(
 def main() -> None:
     """Main function with two-phase control."""
     assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
+    
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Hybrid force/impedance control for Franka Panda")
+    parser.add_argument("--ip", type=str, default="localhost", help="Robot IP address")
+    parser.add_argument("--approach-only", action="store_true", help="Only run approach phase (no circle drawing)")
+    args = parser.parse_args()
 
     # ============================================================
     # 1. Create Configurations
@@ -776,156 +714,171 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
+    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
 
     # ============================================================
     # 2. Load Model
     # ============================================================
-    xml_path = "kuka_iiwa_14/scene_notarget.xml"
-    if not common_config.use_table:
-        xml_path = "franka_emika_panda/scene.xml"
-        xml_path = add_slope_xml(
-            xml_path,
-            common_config.euler,
-            common_config.size_z,
-            common_config.circle_radius,
-            common_config.circle_center
+    try:
+        # Connect to robot
+        print(f"Connecting to robot at {args.ip}...")
+        robot = Robot(args.ip, RealtimeConfig.kIgnore)
+
+        # Set collision behavior
+        robot.set_collision_behavior(
+            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
         )
 
-    model = mujoco.MjModel.from_xml_path(xml_path)
-    data = mujoco.MjData(model)
-    model.opt.timestep = common_config.dt
+        # Safety warning
+        print("\n" + "="*60)
+        print("WARNING: This will move the robot!")
+        print("Make sure:")
+        print("  1. The workspace is clear")
+        print("  2. Emergency stop is accessible")
+        print("  3. You understand the trajectory")
+        print("="*60)
+        input("Press Enter to continue...")
 
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
-    pino_data = pino_model.createData()
+        # ============================================================
+        # 3. Create Controllers
+        # ============================================================
+        approach_controller = CartesianSpacePDController(approach_config, common_config)
+        circle_controller = HybridController(circle_config, common_config)
 
-    # Get robot structure
-    joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
-    site_name = "attachment_site"
-    site_id = model.site(site_name).id
-    dof_ids = np.array([model.joint(name).id for name in joint_names])
-    actuator_ids = np.array([model.actuator(name).id for name in joint_names])
+        # Initialize both controllers
+        if not circle_controller.init(q0):
+            print("Circle controller init failed!")
+            return
 
-    # Set visualization
-    for i in range(model.ngeom):
-        model.geom_rgba[i, 3] = 0.5
-    model.opt.cone = 0
+        # ============================================================
+        # 4. Setup Initial Targets
+        # ============================================================
 
-    # ============================================================
-    # 3. Create Controllers
-    # ============================================================
-    approach_controller = CartesianSpacePDController(approach_config, common_config)
-    circle_controller = HybridController(circle_config, common_config)
+        # Generate target position
+        R_slope = euler_to_rot_matrix(common_config.euler)
+        if common_config.use_table:
+            target_pos = np.array([0.6, 0., 0.45])
+        else:
+            target_pos = generate_start_position(
+                common_config.circle_radius,
+                common_config.circle_center,
+                common_config.size_z,
+                R_slope
+            )
 
-    # Initialize both controllers
-    if not approach_controller.init(model, data, site_id, dof_ids, actuator_ids):
-        print("Approach controller init failed!")
-        return
+        # Generate target orientation
+        # q = (w, x, y, z)
+        target_quat = np.array([0., 1., 0., 0.])
+        quat_slope = np.zeros(4)
+        mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
+        mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
 
-    if not circle_controller.init(model, data, pino_model, pino_data, site_id, dof_ids, actuator_ids):
-        print("Circle controller init failed!")
-        return
+        # Start torque control
+        print("\nStarting torque control...")
+        active_control = robot.start_torque_control()
+        model = robot.load_model()
 
-    # ============================================================
-    # 4. Setup Initial Targets
-    # ============================================================
-    # Reset to home
-    mujoco.mj_resetDataKeyframe(model, data, model.key("home").id)
+        # ============================================================
+        # 5. Start Approach Phase
+        # ============================================================
+        control_phase = ControlPhase.APPROACHING
+        approach_controller.starting(target_pos, target_quat)
 
-    # Generate target position
-    R_slope = euler_to_rot_matrix(common_config.euler)
-    if common_config.use_table:
-        target_pos = np.array([0.6, 0., 0.45])
-    else:
-        target_pos = generate_start_position(
-            common_config.circle_radius,
-            common_config.circle_center,
-            common_config.size_z,
-            R_slope
-        )
+        print("\n" + "=" * 60)
+        print("PHASE 1: APPROACHING TARGET POSITION")
+        print("=" * 60)
 
-    # Generate target orientation
-    # q = (w, x, y, z)
-    target_quat = np.array([0., 1., 0., 0.])
-    quat_slope = np.zeros(4)
-    mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
-    mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
-
-    # ============================================================
-    # 5. Start Approach Phase
-    # ============================================================
-    control_phase = ControlPhase.APPROACHING
-    approach_controller.starting(target_pos, target_quat)
-
-    print("\n" + "=" * 60)
-    print("PHASE 1: APPROACHING TARGET POSITION")
-    print("=" * 60)
-
-    # ============================================================
-    # 6. Run Control Loop
-    # ============================================================
-    with mujoco.viewer.launch_passive(
-            model, data,
-            show_left_ui=False, show_right_ui=False
-    ) as viewer:
-        # Reset the simulation.
-        key_id = model.key("home").id
-        mujoco.mj_resetDataKeyframe(model, data, key_id)
-        mujoco.mjv_defaultFreeCamera(model, viewer.cam)
-
+        # ============================================================
+        # 6. Run Control Loop
+        # ============================================================
         sim_time = 0.0
         transition_time = 0.0
+        try:
+            while True:
+                step_start = time.time()
+                # Read robot state
+                robot_state, duration = active_control.readOnce()
 
-        while viewer.is_running():
-            step_start = time.time()
+                # ============================================================
+                # State Machine: Switch Controllers
+                # ============================================================
+                if control_phase == ControlPhase.APPROACHING:
+                    # Use approach controller
+                    tau = approach_controller.update(robot_state, model)
 
-            # ============================================================
-            # State Machine: Switch Controllers
-            # ============================================================
-            if control_phase == ControlPhase.APPROACHING:
-                # Use approach controller
-                tau = approach_controller.update()
+                    # Check if target reached
+                    if approach_controller.is_target_reached(robot_state):
+                        print("\n" + "=" * 60)
+                        print(f"TARGET REACHED at t={sim_time:.2f}s!")
+                        print("PHASE 2: CIRCLE DRAWING")
+                        print("=" * 60 + "\n")
 
-                # Check if target reached
-                if approach_controller.is_target_reached():
-                    print("\n" + "=" * 60)
-                    print(f"TARGET REACHED at t={sim_time:.2f}s!")
-                    print("PHASE 2: CIRCLE DRAWING")
-                    print("=" * 60 + "\n")
+                        if args.approach_only:
+                            print("Approach-only mode: stopping here.")
+                            control_phase = ControlPhase.STOPPED
+                        else:
+                            print("PHASE 2: CIRCLE DRAWING")
+                            print("="*60)
+                            control_phase = ControlPhase.CIRCLE_DRAWING
+                            transition_time = sim_time
+                            circle_controller.starting(sim_time, target_pos, target_quat)
 
-                    control_phase = ControlPhase.CIRCLE_DRAWING
-                    transition_time = sim_time
-                    circle_controller.starting(sim_time, target_pos, target_quat)
+                elif control_phase == ControlPhase.CIRCLE_DRAWING:
+                    # Use circle drawing controller
+                    tau = circle_controller.update(sim_time, robot_state, model)
 
-            elif control_phase == ControlPhase.CIRCLE_DRAWING:
-                # Use circle drawing controller
-                tau = circle_controller.update(sim_time)
+                    # Check if finished
+                    if circle_controller.is_finished():
+                        print("\n" + "=" * 60)
+                        print(f"CIRCLE DRAWING FINISHED at t={sim_time:.2f}s!")
+                        print("=" * 60 + "\n")
+                        control_phase = ControlPhase.STOPPED
 
-                # Check if finished
-                if circle_controller.is_finished():
-                    print("\n" + "=" * 60)
-                    print(f"CIRCLE DRAWING FINISHED at t={sim_time:.2f}s!")
-                    print("=" * 60 + "\n")
-                    control_phase = ControlPhase.STOPPED
+                else:  # STOPPED
+                    tau = np.array(model.gravity(robot_state))
 
-            else:  # STOPPED
-                tau = data.qfrc_bias[dof_ids]
+                    # Signal motion finished and exit
+                    torque_cmd = Torques(tau.tolist())
+                    torque_cmd.motion_finished = True
+                    active_control.writeOnce(torque_cmd)
+                    break
 
-            # ============================================================
-            # Apply Control and Step Simulation
-            # ============================================================
-            np.clip(tau, *model.actuator_ctrlrange.T, out=tau)
-            data.ctrl[actuator_ids] = tau
-            mujoco.mj_step(model, data)
+                # ============================================================
+                # Apply Control and Step Simulation
+                # ============================================================
+                tau = np.clip(tau, -87.0, 87.0)
+                torque_cmd = Torques(tau.tolist())
+                active_control.writeOnce(torque_cmd)
 
-            # Update viewer
-            viewer.sync()
+                # Update time
+                sim_time += duration.to_sec()
 
-            # Maintain real-time rate
-            time_until_next_step = common_config.dt - (time.time() - step_start)
-            if time_until_next_step > 0:
-                time.sleep(time_until_next_step)
+                # # # Maintain control rate (1kHz)
+                # elapsed = time.time() - step_start
+                # if elapsed < common_config.dt:
+                #     time.sleep(common_config.dt - elapsed)
 
-            sim_time += common_config.dt
+                # sim_time += common_config.dt
+        except KeyboardInterrupt:
+            print("\nControl interrupted by user")
+            # Send zero torques
+            torque_cmd = Torques([0.0] * 7)
+            torque_cmd.motion_finished = True
+            active_control.writeOnce(torque_cmd)
+
+        print("\n[MAIN] Control finished")
+        print(f"Total time: {sim_time:.2f}s")
+    
+    except Exception as e:
+        print(f"\nError occurred: {e}")
+        import traceback
+        traceback.print_exc()
+        if robot is not None:
+            robot.stop()
+        return -1
 
     # ============================================================
     # 7. Plot Results
@@ -933,6 +886,7 @@ def main() -> None:
     print("\n[MAIN] Simulation complete. Generating plots...")
     plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
 
+    return 0
 
 if __name__ == "__main__":
     main()

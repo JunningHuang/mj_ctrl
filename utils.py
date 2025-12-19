@@ -3,7 +3,6 @@ import numpy as np
 from scipy.linalg import pinv
 import mujoco
 import xml.etree.ElementTree as ET
-from IPython.display import display, Math
 from pathlib import Path
 
 
@@ -155,11 +154,17 @@ def task_space_inertiaM(M_inv, jac):
         Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
     return Mx
 
-def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
+# def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
+#     """
+#     Compute the null-space torque to drive joints to a desired configuration q0 with PD control.
+#     """
+#     return Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+
+def null_space_tau(q, dq, q0, Kp_null, Kd_null):
     """
     Compute the null-space torque to drive joints to a desired configuration q0 with PD control.
     """
-    return Kp_null * (q0 - data.qpos[dof_ids]) - Kd_null * data.qvel[dof_ids]
+    return Kp_null * (q0 - q) - Kd_null * dq
 
 def bruno_motion_space_control_force(x_ddot_desired, x_dot_desired, x_tilde, x_dot_tilde, M_x, C_x, K_x, D_x):
     # Cx is hard to compute, ignore it for now

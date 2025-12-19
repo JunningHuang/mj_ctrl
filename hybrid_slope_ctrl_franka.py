@@ -12,111 +12,14 @@ import numpy as np
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from scipy.spatial.transform import Rotation
 
 from pylibfranka import Robot, Torques, RealtimeConfig
+from utils import euler_to_rot_matrix, generate_start_position
 
 # ------------------------------------------------------------------------------
 # Utility Functions
 # ------------------------------------------------------------------------------
-
-def euler_to_rot_matrix(euler: np.ndarray) -> np.ndarray:
-    """
-    Convert Euler angles (XYZ convention) to rotation matrix.
-
-    Args:
-        euler: Euler angles [rx, ry, rz] in radians
-
-    Returns:
-        3x3 rotation matrix
-    """
-    rx, ry, rz = euler
-
-    # Rotation around X
-    Rx = np.array([
-        [1, 0, 0],
-        [0, np.cos(rx), -np.sin(rx)],
-        [0, np.sin(rx), np.cos(rx)]
-    ])
-
-    # Rotation around Y
-    Ry = np.array([
-        [np.cos(ry), 0, np.sin(ry)],
-        [0, 1, 0],
-        [-np.sin(ry), 0, np.cos(ry)]
-    ])
-
-    # Rotation around Z
-    Rz = np.array([
-        [np.cos(rz), -np.sin(rz), 0],
-        [np.sin(rz), np.cos(rz), 0],
-        [0, 0, 1]
-    ])
-
-    # Combined rotation (XYZ order)
-    return Rz @ Ry @ Rx
-
-
-def homogeneous_to_pos_quat(T: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Extract position and quaternion from 4x4 homogeneous transformation.
-
-    Args:
-        T: 16-element array representing 4x4 matrix (column-major)
-
-    Returns:
-        pos: 3D position [x, y, z]
-        quat: Quaternion [w, x, y, z]
-    """
-    # Reshape to 4x4 (column-major to row-major)
-    T_matrix = np.array(T).reshape(4, 4).T
-
-    pos = T_matrix[:3, 3]
-    R = T_matrix[:3, :3]
-
-    # Convert rotation matrix to quaternion
-    quat = rotation_matrix_to_quaternion(R)
-
-    return pos, quat
-
-
-def rotation_matrix_to_quaternion(R: np.ndarray) -> np.ndarray:
-    """
-    Convert rotation matrix to quaternion [w, x, y, z].
-
-    Args:
-        R: 3x3 rotation matrix
-
-    Returns:
-        Quaternion [w, x, y, z]
-    """
-    trace = np.trace(R)
-
-    if trace > 0:
-        s = 0.5 / np.sqrt(trace + 1.0)
-        w = 0.25 / s
-        x = (R[2, 1] - R[1, 2]) * s
-        y = (R[0, 2] - R[2, 0]) * s
-        z = (R[1, 0] - R[0, 1]) * s
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
-        w = (R[2, 1] - R[1, 2]) / s
-        x = 0.25 * s
-        y = (R[0, 1] + R[1, 0]) / s
-        z = (R[0, 2] + R[2, 0]) / s
-    elif R[1, 1] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
-        w = (R[0, 2] - R[2, 0]) / s
-        x = (R[0, 1] + R[1, 0]) / s
-        y = 0.25 * s
-        z = (R[1, 2] + R[2, 1]) / s
-    else:
-        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
-        w = (R[1, 0] - R[0, 1]) / s
-        x = (R[0, 2] + R[2, 0]) / s
-        y = (R[1, 2] + R[2, 1]) / s
-        z = 0.25 * s
-
-    return np.array([w, x, y, z])
 
 
 def quaternion_to_rotation_matrix(quat: np.ndarray) -> np.ndarray:
@@ -260,26 +163,26 @@ def feedforward_PD(
     return x_acc_desired + Kp * x_delta + Kd * x_dot_delta
 
 
-def generate_start_position(
-    circle_radius: float,
-    circle_center: np.ndarray,
-    size_z: float,
-    R_slope: np.ndarray
-) -> np.ndarray:
-    """
-    Generate starting position for circle trajectory.
+# def generate_start_position(
+#     circle_radius: float,
+#     circle_center: np.ndarray,
+#     size_z: float,
+#     R_slope: np.ndarray
+# ) -> np.ndarray:
+#     """
+#     Generate starting position for circle trajectory.
 
-    Args:
-        circle_radius: Radius of circle
-        circle_center: Center of circle
-        size_z: Z offset in local frame
-        R_slope: Rotation matrix for slope
+#     Args:
+#         circle_radius: Radius of circle
+#         circle_center: Center of circle
+#         size_z: Z offset in local frame
+#         R_slope: Rotation matrix for slope
 
-    Returns:
-        Starting position in world frame
-    """
-    start_local = np.array([circle_radius, 0.0, size_z])
-    return circle_center + (R_slope @ start_local)
+#     Returns:
+#         Starting position in world frame
+#     """
+#     start_local = np.array([circle_radius, 0.0, size_z])
+#     return circle_center + (R_slope @ start_local)
 
 
 def generate_circle_trajectory(
@@ -792,10 +695,14 @@ def main():
         )
 
         # Target orientation (align with slope)
-        target_quat_base = np.array([0.0, 1.0, 0.0, 0.0])  # Pointing down
-        target_quat = rotation_matrix_to_quaternion(R_slope)
+        # Initial quaternion [x, y, z, w]
+        target_quat = np.array([0., 0., 0., 1.])
+        quat_slope = Rotation.from_euler('xyz', common_config.euler).as_quat()
         # Compose quaternions (simplified - might need proper quaternion multiplication)
-        target_quat = target_quat_base  # Use base orientation for now
+        rot_target = Rotation.from_quat(target_quat)
+        rot_slope = Rotation.from_quat(quat_slope)
+        result_rot = rot_slope * rot_target
+        target_quat = result_rot.as_quat()
 
         # Start torque control
         print("\nStarting torque control...")
