@@ -177,7 +177,6 @@ def task_space_inertiaM_fromM(M, jac, regularization = 1e-6):
         Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
     return Mx
 
-def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
 # def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
 #     """
 #     Compute the null-space torque to drive joints to a desired configuration q0 with PD control.
