@@ -14,12 +14,77 @@ from dataclasses import dataclass
 from enum import Enum
 from scipy.spatial.transform import Rotation
 
+import pinocchio as pino
 from pylibfranka import Robot, Torques, RealtimeConfig
 from utils import euler_to_rot_matrix, generate_start_position
 
+from utils_libfranka import euler_to_rot_matrix, compute_ee_pose_error_pinocchio
 # ------------------------------------------------------------------------------
 # Utility Functions
 # ------------------------------------------------------------------------------
+
+
+def homogeneous_to_pos_quat(T: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Extract position and quaternion from 4x4 homogeneous transformation.
+
+    Args:
+        T: 16-element array representing 4x4 matrix (column-major)
+
+    Returns:
+        pos: 3D position [x, y, z]
+        quat: Quaternion [w, x, y, z]
+    """
+    # Reshape to 4x4 (column-major to row-major)
+    T_matrix = np.array(T).reshape(4, 4).T
+
+    pos = T_matrix[:3, 3]
+    R = T_matrix[:3, :3]
+
+    # Convert rotation matrix to quaternion
+    quat = rotation_matrix_to_quaternion(R)
+
+    return pos, quat
+
+
+def rotation_matrix_to_quaternion(R: np.ndarray) -> np.ndarray:
+    """
+    Convert rotation matrix to quaternion [w, x, y, z].
+
+    Args:
+        R: 3x3 rotation matrix
+
+    Returns:
+        Quaternion [w, x, y, z]
+    """
+    trace = np.trace(R)
+
+    if trace > 0:
+        s = 0.5 / np.sqrt(trace + 1.0)
+        w = 0.25 / s
+        x = (R[2, 1] - R[1, 2]) * s
+        y = (R[0, 2] - R[2, 0]) * s
+        z = (R[1, 0] - R[0, 1]) * s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        w = (R[2, 1] - R[1, 2]) / s
+        x = 0.25 * s
+        y = (R[0, 1] + R[1, 0]) / s
+        z = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        w = (R[0, 2] - R[2, 0]) / s
+        x = (R[0, 1] + R[1, 0]) / s
+        y = 0.25 * s
+        z = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        w = (R[1, 0] - R[0, 1]) / s
+        x = (R[0, 2] + R[2, 0]) / s
+        y = (R[1, 2] + R[2, 1]) / s
+        z = 0.25 * s
+
+    return np.array([w, x, y, z])
 
 
 def quaternion_to_rotation_matrix(quat: np.ndarray) -> np.ndarray:
@@ -41,51 +106,6 @@ def quaternion_to_rotation_matrix(quat: np.ndarray) -> np.ndarray:
     ])
 
     return R
-
-
-def compute_ee_pose_error(
-    target_pos: np.ndarray,
-    current_pos: np.ndarray,
-    target_quat: np.ndarray,
-    current_mat: np.ndarray,
-    Kpos: float = 1.0
-) -> np.ndarray:
-    """
-    Compute end-effector pose error as a 6D twist.
-
-    Args:
-        target_pos: Desired position [x, y, z]
-        current_pos: Current position [x, y, z]
-        target_quat: Desired orientation quaternion [w, x, y, z]
-        current_mat: Current rotation matrix (3x3 or 9-element array)
-        Kpos: Position gain
-
-    Returns:
-        6D twist [dx, dy, dz, drx, dry, drz]
-    """
-    # Position error
-    pos_error = Kpos * (target_pos - current_pos)
-
-    # Orientation error
-    if current_mat.size == 9:
-        current_mat = current_mat.reshape(3, 3)
-    elif current_mat.size == 16:
-        current_mat = current_mat.reshape(4, 4).T[:3, :3]
-
-    target_mat = quaternion_to_rotation_matrix(target_quat)
-
-    # Compute orientation error in axis-angle representation
-    error_mat = target_mat @ current_mat.T
-
-    # Convert to axis-angle (simplified)
-    ori_error = np.array([
-        error_mat[2, 1] - error_mat[1, 2],
-        error_mat[0, 2] - error_mat[2, 0],
-        error_mat[1, 0] - error_mat[0, 1]
-    ]) * 0.5
-
-    return np.concatenate([pos_error, ori_error])
-
 
 def task_space_inertiaM(M_inv: np.ndarray, jac: np.ndarray) -> np.ndarray:
     """
@@ -336,7 +356,7 @@ class HybridControllerConfig:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-5.0])  # Reduced for safety
+            self.F_desired_contact = np.array([-10.0])
 
 
 # ------------------------------------------------------------------------------
@@ -389,7 +409,7 @@ class CartesianSpacePDController:
         current_mat = O_T_EE[:3, :3]
 
         # Compute pose error
-        twist = compute_ee_pose_error(
+        twist = compute_ee_pose_error_pinocchio(
             self.target_pos,
             current_pos,
             self.target_quat,

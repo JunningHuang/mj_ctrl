@@ -1,6 +1,7 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
+# Mujuco and Franka and class structure
 # ------------------------------------------------------------------------------
 
 import mujoco
@@ -65,13 +66,14 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.001
+    dt: float = 0.002
     gravity_compensation: bool = True
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
+    angular_speed: float = np.pi
     angular_speed: float = np.pi
 
     # Contact detection thresholds
@@ -100,7 +102,7 @@ class CartesianSpacePDControlConfig:
 
     where twist is computed from pose error with gain Kpos.
     """
-    Kpos: float = 0.5  # Position error gain
+    Kpos: float = 0.95  # Position error gain
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -141,9 +143,9 @@ class HybridControllerConfig:
     k_normal: float = 5000.0
 
     # Force control gains
-    Kp_force: float = 0.4
+    Kp_force: float = 0.4  # Reduced for safety
     Kd_force: float = 0.002
-    Ki_force: float = 0.4
+    Ki_force: float = 0.4  # Reduced for safety
     F_desired_contact: np.ndarray = None
 
     def __post_init__(self):
@@ -190,11 +192,8 @@ class CartesianSpacePDController:
         self.target_quat: Optional[np.ndarray] = None
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
-        # Preallocated workspace
-        self.jac: Optional[np.ndarray] = None
-        self.M_inv: Optional[np.ndarray] = None
-        self.Mx: Optional[np.ndarray] = None
-        self.tau: Optional[np.ndarray] = None
+        # Control output
+        self.tau: np.ndarray = np.zeros(7)
 
         # Data logging
         self.ee_positions: list = []
@@ -296,6 +295,9 @@ class CartesianSpacePDController:
         # ============================================================
         mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
         self.Mx = task_space_inertiaM(self.M_inv, self.jac)
+        # M = np.zeros((self.model.nv, self.model.nv))
+        # mujoco.mj_fullM(self.model, M, self.data.qM)
+        # self.Mx = task_space_inertiaM_fromM(M, self.jac)
 
         # ============================================================
         # 4. Compute Task-Space Control
@@ -638,8 +640,12 @@ class HybridController:
         #------------------------------------------------------
         # Constraint space
         #------------------------------------------------------
+        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
+        pino.computeJointJacobians(self.pino_model, self.pino_data)
+        pino.updateFramePlacements(self.pino_model, self.pino_data)
+
         C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
-        pino_frame_id = 0 # pino_model.getFrameId("attachment")
+        pino_frame_id = self.pino_model.getFrameId("attachment")
         J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         J_phi_dot = self.S_f.T @ J_dot
 
@@ -647,7 +653,7 @@ class HybridController:
         F_ext_x_new[-3:] = 0
         control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
         contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-        verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C) @ self.data.qvel.copy()
+        verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ self.data.qvel.copy()
         F_ctrl_constraint = (
             self.config.F_desired_contact +
             control_force_compensation +

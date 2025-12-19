@@ -154,6 +154,30 @@ def task_space_inertiaM(M_inv, jac):
         Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
     return Mx
 
+def task_space_inertiaM_fromM(M, jac, regularization = 1e-6):
+    """
+    Compute the task-space inertia matrix from the joint-space inertia matrix.
+    Mx_inv = J * (M^-1 * J^T)
+    X = M^-1 * J^T
+    """
+    M_reg = M + regularization * np.eye(M.shape[0])
+
+    try:
+        # Solve M * X = J^T for X
+        X = np.linalg.solve(M_reg, jac.T)
+    except np.linalg.LinAlgError:
+        # Fallback to pseudoinverse if still singular
+        print("Warning: Using pseudoinverse for M")
+        X = np.linalg.pinv(M_reg, rcond=1e-4) @ jac.T
+
+    Mx_inv = jac @ X
+    if abs(np.linalg.det(Mx_inv)) >= 1e-2:
+        Mx = np.linalg.inv(Mx_inv)
+    else:
+        Mx = np.linalg.pinv(Mx_inv, rcond=1e-2)
+    return Mx
+
+def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
 # def null_space_tau(data, q0, dof_ids, Kp_null, Kd_null):
 #     """
 #     Compute the null-space torque to drive joints to a desired configuration q0 with PD control.
