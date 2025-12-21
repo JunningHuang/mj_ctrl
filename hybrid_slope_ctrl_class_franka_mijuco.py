@@ -7,14 +7,13 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
-import pinocchio as pino
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 from utils import *
 import matplotlib.pyplot as plt
-from geom_visualizer import visualize_normal_arrow, reset_scene
+# from geom_visualizer import visualize_normal_arrow, reset_scene
 from pylibfranka import Robot, Torques, RealtimeConfig
 
 def generate_circle_trajectory(elapsed_time: float,
@@ -722,7 +721,7 @@ def main() -> None:
     try:
         # Connect to robot
         print(f"Connecting to robot at {args.ip}...")
-        robot = Robot(args.ip, RealtimeConfig.kIgnore)
+        robot = Robot(args.ip)
 
         # Set collision behavior
         robot.set_collision_behavior(
