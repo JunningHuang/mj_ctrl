@@ -288,11 +288,13 @@ class CartesianSpacePDController:
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
+        # TODO: use pinocchio to get jacobian matrix
         mujoco.mj_jacSite(self.model, self.data, self.jac[:3], self.jac[3:], self.site_id)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
         # ============================================================
+        # TODO: use pinocchio to get inverse M 
         mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
         self.Mx = task_space_inertiaM(self.M_inv, self.jac)
         # M = np.zeros((self.model.nv, self.model.nv))
@@ -319,6 +321,7 @@ class CartesianSpacePDController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += self.data.qfrc_bias[self.dof_ids]
 
@@ -582,6 +585,7 @@ class HybridController:
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
+        # TODO: use pinocchio to get jac and inverse inertia matrix
         M_inv = np.zeros((self.model.nv, self.model.nv))
         jac = np.zeros((6, self.model.nv))
         mujoco.mj_jacSite(self.model, self.data, jac[:3], jac[3:], self.site_id)
@@ -674,6 +678,7 @@ class HybridController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += self.data.qfrc_bias[self.dof_ids]
 

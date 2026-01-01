@@ -1,12 +1,14 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
+# Using libfranka for command and Mujoco for physical model values and easy calculation
 # ------------------------------------------------------------------------------
 import argparse
 import mujoco
 import mujoco.viewer
 import numpy as np
 import time
+import pinocchio as pino
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -14,7 +16,7 @@ from enum import Enum
 from utils import *
 import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
-from pylibfranka import Robot, Torques, RealtimeConfig
+from franka_bindings import Robot, Torques, RealtimeConfig
 
 def generate_circle_trajectory(elapsed_time: float,
                                circle_center: np.ndarray,
@@ -100,7 +102,7 @@ class CartesianSpacePDControlConfig:
 
     where twist is computed from pose error with gain Kpos.
     """
-    Kpos: float = 0.5  # Position error gain
+    Kpos: float = 0.95  # Position error gain
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -247,12 +249,13 @@ class CartesianSpacePDController:
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
+        # TODO: use pinocchio to get jacobian matrix
         jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
         # ============================================================
-        # TODO: how to cal M_inv without mujoco
+        # TODO: use pinocchio to get inverse M 
         # mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
         # self.Mx = task_space_inertiaM(self.M_inv, self.jac)
         mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
@@ -282,6 +285,7 @@ class CartesianSpacePDController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += np.array(model.gravity(robot_state))
 
@@ -512,6 +516,7 @@ class HybridController:
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
+        # TODO: use pinocchio to get jac and inverse inertia matrix
         jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
         mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
         M_inv = np.linalg.inv(mass_matrix)
@@ -571,6 +576,7 @@ class HybridController:
         #------------------------------------------------------
         # Constraint space
         #------------------------------------------------------
+        # TODO
         C = np.array(model.coriolis(robot_state))
         # J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         # J_phi_dot = self.S_f.T @ J_dot
@@ -600,6 +606,7 @@ class HybridController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += np.array(model.gravity(robot_state))
         # ============================================================
@@ -778,6 +785,7 @@ def main() -> None:
         # Start torque control
         print("\nStarting torque control...")
         active_control = robot.start_torque_control()
+        # this function doesn't work, get rid of it
         model = robot.load_model()
 
         # ============================================================
