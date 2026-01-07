@@ -68,14 +68,13 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.002
+    dt: float = 0.001
     gravity_compensation: bool = True
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
     angular_speed: float = np.pi
 
     # Contact detection thresholds
@@ -145,9 +144,9 @@ class HybridControllerConfig:
     k_normal: float = 5000.0
 
     # Force control gains
-    Kp_force: float = 0.4  # Reduced for safety
+    Kp_force: float = 0.4
     Kd_force: float = 0.002
-    Ki_force: float = 0.4  # Reduced for safety
+    Ki_force: float = 0.4
     F_desired_contact: np.ndarray = None
 
     def __post_init__(self):
@@ -393,8 +392,6 @@ class HybridController:
         # Control matrices
         self.Kp: Optional[np.ndarray] = None
         self.Kd: Optional[np.ndarray] = None
-        self.K_material: Optional[np.ndarray] = None
-        self.Compliance_matrix: Optional[np.ndarray] = None
 
         # Selection matrices
         self.S_fc: Optional[np.ndarray] = None
@@ -476,16 +473,6 @@ class HybridController:
             self.Kd = np.concatenate([damping_pos, damping_ori])
 
             # ============================================================
-            # Setup Material Stiffness
-            # ============================================================
-            k_n = self.config.k_normal
-            self.K_material = np.diag([
-                k_n * 0.1, k_n * 0.1, k_n * 0.1,  # xyz
-                k_n * 0.01, k_n * 0.01, k_n * 0.01  # rotations
-            ])
-            self.Compliance_matrix = np.linalg.inv(self.K_material)
-
-            # ============================================================
             # Setup Constraint Geometry
             # ============================================================
             self.R_slope = euler_to_rot_matrix(self.common_config.euler)
@@ -528,7 +515,6 @@ class HybridController:
 
             print(f"[CIRCLE INIT] Controller initialized")
             print(f"  - Force control: F_desired={self.config.F_desired_contact}")
-            print(f"  - Material stiffness: k_normal={self.config.k_normal}")
 
             return True
 

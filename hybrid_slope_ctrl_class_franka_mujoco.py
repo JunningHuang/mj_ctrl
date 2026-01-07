@@ -1,7 +1,8 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# Using libfranka for command and Mujoco for physical model values and easy calculation
+# 1. Use pinocchio to load model dynamics and calculate jac, M and g
+# 2. Using libfranka for robot states and send control signal
 # ------------------------------------------------------------------------------
 import argparse
 import mujoco
@@ -67,7 +68,7 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.001
+    dt: float = 0.001 # only for result plotting
     gravity_compensation: bool = True
 
     # Circle drawing parameters
@@ -179,6 +180,8 @@ class CartesianSpacePDController:
         self.config = config
         self.common_config = common_config
 
+        self.pino_model: Optional[pino.Model] = None
+        self.pino_data: Optional[pino.Data] = None
         # # Robot structure (set in init)
         # self.model: Optional[mujoco.MjModel] = None
         # self.data: Optional[mujoco.MjData] = None
@@ -202,7 +205,7 @@ class CartesianSpacePDController:
         self.ee_positions: list = []
         self.target_positions: list = []
 
-    def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray) -> None:
+    def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data,) -> None:
         """
         Reset controller state.
 
@@ -210,6 +213,8 @@ class CartesianSpacePDController:
             target_pos: Target end-effector position
             target_quat: Target end-effector quaternion
         """
+        self.pino_model = pino_model
+        self.pino_data = pino_data
         self.target_pos = target_pos.copy()
         self.target_quat = target_quat.copy()
         self.q0 = q0.copy()
@@ -218,10 +223,13 @@ class CartesianSpacePDController:
         self.ee_positions = []
         self.target_positions = []
 
+        # Zero control
+        self.tau[:] = 0.0
+
         print(f"[APPROACH START] Target position: {self.target_pos}")
         print(f"[APPROACH START] Target quaternion: {self.target_quat}")
 
-    def update(self, robot_state, model) -> np.ndarray:
+    def update(self, robot_state) -> np.ndarray:
         """
         Compute control torques for approaching target.
 
@@ -250,7 +258,12 @@ class CartesianSpacePDController:
         # 2. Compute Jacobian
         # ============================================================
         # TODO: use pinocchio to get jacobian matrix
-        jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
+        # jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
+        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
+        pino.computeJointJacobians(self.pino_model, self.pino_data)
+        pino.updateFramePlacements(self.pino_model, self.pino_data)
+        pino_frame_id = self.pino_model.getFrameId("attachment")
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
@@ -258,9 +271,8 @@ class CartesianSpacePDController:
         # TODO: use pinocchio to get inverse M 
         # mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
         # self.Mx = task_space_inertiaM(self.M_inv, self.jac)
-        mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
-        M_inv = np.linalg.inv(mass_matrix)
-        Mx = task_space_inertiaM(M_inv, jac)
+        M_inv = pino.computeMinverse(self.pino_model, self.pino_data, self.data.qpos)
+        Mx = task_space_inertiaM(self.M_inv, self.jac)
 
         # ============================================================
         # 4. Compute Task-Space Control
@@ -287,7 +299,7 @@ class CartesianSpacePDController:
         # ============================================================
         # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
-            self.tau += np.array(model.gravity(robot_state))
+            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, self.data.qpos)
 
         # ============================================================
         # 7. Log Data
@@ -369,7 +381,7 @@ class HybridController:
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
 
-    def init(self, q0: np.ndarray) -> bool:
+    def init(self, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data,) -> bool:
         """
         Initialize controller with robot model.
 
@@ -385,6 +397,8 @@ class HybridController:
         """
         try:
             self.q0 = q0.copy()
+            self.pino_model = pino_model
+            self.pino_data = pino_data
             # ============================================================
             # Setup Control Gains
             # ============================================================
@@ -412,11 +426,9 @@ class HybridController:
             self.S_vc[3, 2] = 1  # rx rotation
             self.S_vc[4, 3] = 1  # ry rotation
             self.S_vc[5, 4] = 1  # rz rotation
-            # Rotation matrix for 6D space
             self.R = np.zeros((6, 6))
             self.R[0:3, 0:3] = self.R_slope
             self.R[3:6, 3:6] = self.R_slope
-            # Transform to world frame
             self.S_f = self.R @ self.S_fc
             self.S_v = self.R @ self.S_vc
             
@@ -516,10 +528,18 @@ class HybridController:
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
-        # TODO: use pinocchio to get jac and inverse inertia matrix
-        jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
-        mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
-        M_inv = np.linalg.inv(mass_matrix)
+        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
+        pino.computeJointJacobians(self.pino_model, self.pino_data)
+        pino.updateFramePlacements(self.pino_model, self.pino_data)
+        pino_frame_id = self.pino_model.getFrameId("attachment")
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        M = pino.crba(self.pino_model, self.pino_data, q)
+        # M_inv = np.linalg.inv(M)
+        M_inv = pino.computeMinverse(self.pino_model, self.pino_data, q)
+
+        # jac = np.array(model.zero_jacobian(robot_state)).reshape(6, 7)
+        # mass_matrix = np.array(model.mass(robot_state)).reshape(7, 7)
+        # M_inv = np.linalg.inv(mass_matrix)
 
         J_phi = self.S_f.T @ jac
         J_motion = self.S_v.T @ jac
@@ -577,15 +597,15 @@ class HybridController:
         # Constraint space
         #------------------------------------------------------
         # TODO
-        C = np.array(model.coriolis(robot_state))
-        # J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
-        # J_phi_dot = self.S_f.T @ J_dot
+        C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, q, dq)
+        J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        J_phi_dot = self.S_f.T @ J_dot
 
         F_ext_x_new = F_ext_x.copy()
         F_ext_x_new[-3:] = 0
         control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
         contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-        verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C) @ dq
+        verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ dq
         F_ctrl_constraint = (
             self.config.F_desired_contact +
             control_force_compensation +
@@ -608,7 +628,7 @@ class HybridController:
         # ============================================================
         # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
-            self.tau += np.array(model.gravity(robot_state))
+            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
         # ============================================================
         # 7. Log Data
         # ============================================================
@@ -706,7 +726,6 @@ def plot_results(
 
 def main() -> None:
     """Main function with two-phase control."""
-    assert mujoco.__version__ >= "3.1.0", "Please upgrade to mujoco 3.1.0 or later."
     
     # Parse arguments
     parser = argparse.ArgumentParser(description="Hybrid force/impedance control for Franka Panda")
@@ -725,6 +744,8 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
+    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_data = pino_model.createData()
     try:
         # Connect to robot
         print(f"Connecting to robot at {args.ip}...")
@@ -755,7 +776,7 @@ def main() -> None:
         circle_controller = HybridController(circle_config, common_config)
 
         # Initialize both controllers
-        if not circle_controller.init(q0):
+        if not circle_controller.init(q0, pino_model, pino_data):
             print("Circle controller init failed!")
             return
 
@@ -786,13 +807,13 @@ def main() -> None:
         print("\nStarting torque control...")
         active_control = robot.start_torque_control()
         # this function doesn't work, get rid of it
-        model = robot.load_model()
+        # model = robot.load_model()
 
         # ============================================================
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(target_pos, target_quat)
+        approach_controller.starting(target_pos, target_quat, q0, pino_data, pino_model)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
@@ -814,7 +835,7 @@ def main() -> None:
                 # ============================================================
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
-                    tau = approach_controller.update(robot_state, model)
+                    tau = approach_controller.update(robot_state)
 
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
@@ -835,7 +856,7 @@ def main() -> None:
 
                 elif control_phase == ControlPhase.CIRCLE_DRAWING:
                     # Use circle drawing controller
-                    tau = circle_controller.update(sim_time, robot_state, model)
+                    tau = circle_controller.update(sim_time, robot_state)
 
                     # Check if finished
                     if circle_controller.is_finished():
@@ -845,7 +866,8 @@ def main() -> None:
                         control_phase = ControlPhase.STOPPED
 
                 else:  # STOPPED
-                    tau = np.array(model.gravity(robot_state))
+                    tau = pino.computeGeneralizedGravity(pino_model, pino_data, np.array(robot_state.q))
+                    # tau = np.array(model.gravity(robot_state))
 
                     # Signal motion finished and exit
                     torque_cmd = Torques(tau.tolist())
@@ -886,6 +908,8 @@ def main() -> None:
         if robot is not None:
             robot.stop()
         return -1
+    finally:
+        robot.stop()
 
     # ============================================================
     # 7. Plot Results
