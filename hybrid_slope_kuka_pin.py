@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# 1. Prepare class structure for franka robot control
+# 1. Prepare class structure for kuka robot control
 # 2. Use pinocchio to load model dynamics and calculate jac, M and g
 # 3. Use mujuco only for robot states and send control signal
 # ------------------------------------------------------------------------------
@@ -75,7 +75,7 @@ class ControllerConfig:
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -151,9 +151,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) *2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) *2
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -336,7 +336,6 @@ class CartesianSpacePDController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
-        # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
             g = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, self.data.qpos)
             self.tau += g[self.dof_ids]
@@ -682,7 +681,6 @@ class HybridController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
-        # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
             g = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, self.data.qpos)
             self.tau += g[self.dof_ids]
@@ -798,7 +796,7 @@ def main() -> None:
     # ============================================================
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     if not common_config.use_table:
-        xml_path = "franka_emika_panda/scene.xml"
+        xml_path = "kuka_iiwa_14/scene_notable.xml"
         xml_path = add_slope_xml(
             xml_path,
             common_config.euler,
@@ -811,7 +809,7 @@ def main() -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = common_config.dt
 
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("kuka_iiwa_14/iiwa14.xml")
     pino_data = pino_model.createData()
 
     # Get robot structure
@@ -860,7 +858,6 @@ def main() -> None:
         )
 
     # Generate target orientation
-    # q = (w, x, y, z)
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
     mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')

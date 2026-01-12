@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# Mujuco and Franka and class structure
+# Mujuco and Kuka and class structure
 # ------------------------------------------------------------------------------
 
 import mujoco
@@ -66,15 +66,14 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.002
+    dt: float = 0.001
     gravity_compensation: bool = True
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -143,16 +142,16 @@ class HybridControllerConfig:
     k_normal: float = 5000.0
 
     # Force control gains
-    Kp_force: float = 0.4  # Reduced for safety
+    Kp_force: float = 0.4
     Kd_force: float = 0.002
-    Ki_force: float = 0.4  # Reduced for safety
+    Ki_force: float = 0.4
     F_desired_contact: np.ndarray = None
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) *2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) *2
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -192,8 +191,11 @@ class CartesianSpacePDController:
         self.target_quat: Optional[np.ndarray] = None
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
-        # Control output
-        self.tau: np.ndarray = np.zeros(7)
+        # Preallocated workspace
+        self.jac: Optional[np.ndarray] = None
+        self.M_inv: Optional[np.ndarray] = None
+        self.Mx: Optional[np.ndarray] = None
+        self.tau: Optional[np.ndarray] = None
 
         # Data logging
         self.ee_positions: list = []
@@ -288,18 +290,13 @@ class CartesianSpacePDController:
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
-        # TODO: use pinocchio to get jacobian matrix
         mujoco.mj_jacSite(self.model, self.data, self.jac[:3], self.jac[3:], self.site_id)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
         # ============================================================
-        # TODO: use pinocchio to get inverse M 
         mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
         self.Mx = task_space_inertiaM(self.M_inv, self.jac)
-        # M = np.zeros((self.model.nv, self.model.nv))
-        # mujoco.mj_fullM(self.model, M, self.data.qM)
-        # self.Mx = task_space_inertiaM_fromM(M, self.jac)
 
         # ============================================================
         # 4. Compute Task-Space Control
@@ -321,7 +318,6 @@ class CartesianSpacePDController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
-        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += self.data.qfrc_bias[self.dof_ids]
 
@@ -585,7 +581,6 @@ class HybridController:
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
-        # TODO: use pinocchio to get jac and inverse inertia matrix
         M_inv = np.zeros((self.model.nv, self.model.nv))
         jac = np.zeros((6, self.model.nv))
         mujoco.mj_jacSite(self.model, self.data, jac[:3], jac[3:], self.site_id)
@@ -678,7 +673,6 @@ class HybridController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
-        # TODO: use pinocchio to get gravity
         if self.common_config.gravity_compensation:
             self.tau += self.data.qfrc_bias[self.dof_ids]
 
@@ -793,7 +787,7 @@ def main() -> None:
     # ============================================================
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     if not common_config.use_table:
-        xml_path = "franka_emika_panda/scene.xml"
+        xml_path = "kuka_iiwa_14/scene_notable.xml"
         xml_path = add_slope_xml(
             xml_path,
             common_config.euler,
@@ -806,7 +800,7 @@ def main() -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = common_config.dt
 
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("kuka_iiwa_14/iiwa14.xml")
     pino_data = pino_model.createData()
 
     # Get robot structure
@@ -855,7 +849,6 @@ def main() -> None:
         )
 
     # Generate target orientation
-    # q = (w, x, y, z)
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
     mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')

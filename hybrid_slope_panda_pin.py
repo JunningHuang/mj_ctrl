@@ -1,7 +1,9 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# Mujuco and Kuka and class structure
+# 1. Prepare class structure for franka robot control
+# 2. Use pinocchio to load model dynamics and calculate jac, M and g
+# 3. Use mujuco only for robot states and send control signal
 # ------------------------------------------------------------------------------
 
 import mujoco
@@ -66,14 +68,14 @@ class ControlPhase(Enum):
 class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
-    dt: float = 0.002
+    dt: float = 0.001
     gravity_compensation: bool = True
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
     circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -149,9 +151,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) *2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) *2
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -181,6 +183,8 @@ class CartesianSpacePDController:
         # Robot structure (set in init)
         self.model: Optional[mujoco.MjModel] = None
         self.data: Optional[mujoco.MjData] = None
+        self.pino_model: Optional[pino.Model] = None
+        self.pino_data: Optional[pino.Data] = None
         self.site_id: int = -1
         self.dof_ids: Optional[np.ndarray] = None
         self.actuator_ids: Optional[np.ndarray] = None
@@ -191,11 +195,8 @@ class CartesianSpacePDController:
         self.target_quat: Optional[np.ndarray] = None
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
-        # Preallocated workspace
-        self.jac: Optional[np.ndarray] = None
-        self.M_inv: Optional[np.ndarray] = None
-        self.Mx: Optional[np.ndarray] = None
-        self.tau: Optional[np.ndarray] = None
+        # Control output
+        self.tau: np.ndarray = np.zeros(7)
 
         # Data logging
         self.ee_positions: list = []
@@ -205,6 +206,8 @@ class CartesianSpacePDController:
             self,
             model: mujoco.MjModel,
             data: mujoco.MjData,
+            pino_model: pino.Model,
+            pino_data: pino.Data,
             site_id: int,
             dof_ids: np.ndarray,
             actuator_ids: np.ndarray
@@ -215,6 +218,8 @@ class CartesianSpacePDController:
         Args:
             model: MuJoCo model
             data: MuJoCo data
+            pino_model: Pinocchio model
+            pino_data: Pinocchio data
             site_id: End-effector site ID
             dof_ids: Joint DOF IDs
             actuator_ids: Actuator IDs
@@ -225,6 +230,8 @@ class CartesianSpacePDController:
         try:
             self.model = model
             self.data = data
+            self.pino_model = pino_model
+            self.pino_data = pino_data
             self.site_id = site_id
             self.dof_ids = dof_ids
             self.actuator_ids = actuator_ids
@@ -290,13 +297,24 @@ class CartesianSpacePDController:
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
-        mujoco.mj_jacSite(self.model, self.data, self.jac[:3], self.jac[3:], self.site_id)
+        # Use Pinocchio to compute Jacobian
+        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
+        pino.computeJointJacobians(self.pino_model, self.pino_data)
+        pino.updateFramePlacements(self.pino_model, self.pino_data)
+        pino_frame_id = self.pino_model.getFrameId("attachment")
+        self.jac[:] = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
         # ============================================================
-        mujoco.mj_solveM(self.model, self.data, self.M_inv, np.eye(self.model.nv))
+        # Use Pinocchio to compute inverse mass matrix
+        # M = pino.crba(self.pino_model, self.pino_data, self.data.qpos)
+        # self.M_inv[:] = np.linalg.inv(M)
+        self.M_inv = pino.computeMinverse(self.pino_model, self.pino_data, self.data.qpos)
         self.Mx = task_space_inertiaM(self.M_inv, self.jac)
+        # M = np.zeros((self.model.nv, self.model.nv))
+        # mujoco.mj_fullM(self.model, M, self.data.qM)
+        # self.Mx = task_space_inertiaM_fromM(M, self.jac)
 
         # ============================================================
         # 4. Compute Task-Space Control
@@ -312,20 +330,16 @@ class CartesianSpacePDController:
         # 5. Add Nullspace Control
         # ============================================================
         Jbar = self.M_inv @ self.jac.T @ self.Mx
-        ddq = null_space_tau(
-            self.data,
-            self.q0,
-            self.dof_ids,
-            self.config.Kp_null,
-            self.config.Kd_null
-        )
+        ddq = null_space_tau(self.data.qpos[self.dof_ids], self.data.qvel[self.dof_ids], self.q0, self.config.Kp_null, self.config.Kd_null)
         self.tau += (np.eye(self.model.nv) - self.jac.T @ Jbar.T) @ ddq
 
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
-            self.tau += self.data.qfrc_bias[self.dof_ids]
+            g = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, self.data.qpos)
+            self.tau += g[self.dof_ids]
 
         # ============================================================
         # 7. Log Data
@@ -378,8 +392,6 @@ class HybridController:
         # Control matrices
         self.Kp: Optional[np.ndarray] = None
         self.Kd: Optional[np.ndarray] = None
-        self.K_material: Optional[np.ndarray] = None
-        self.Compliance_matrix: Optional[np.ndarray] = None
 
         # Selection matrices
         self.S_fc: Optional[np.ndarray] = None
@@ -461,16 +473,6 @@ class HybridController:
             self.Kd = np.concatenate([damping_pos, damping_ori])
 
             # ============================================================
-            # Setup Material Stiffness
-            # ============================================================
-            k_n = self.config.k_normal
-            self.K_material = np.diag([
-                k_n * 0.1, k_n * 0.1, k_n * 0.1,  # xyz
-                k_n * 0.01, k_n * 0.01, k_n * 0.01  # rotations
-            ])
-            self.Compliance_matrix = np.linalg.inv(self.K_material)
-
-            # ============================================================
             # Setup Constraint Geometry
             # ============================================================
             self.R_slope = euler_to_rot_matrix(self.common_config.euler)
@@ -513,7 +515,6 @@ class HybridController:
 
             print(f"[CIRCLE INIT] Controller initialized")
             print(f"  - Force control: F_desired={self.config.F_desired_contact}")
-            print(f"  - Material stiffness: k_normal={self.config.k_normal}")
 
             return True
 
@@ -587,10 +588,15 @@ class HybridController:
         # ============================================================
         # 2. Compute Jacobian and Dynamics
         # ============================================================
-        M_inv = np.zeros((self.model.nv, self.model.nv))
-        jac = np.zeros((6, self.model.nv))
-        mujoco.mj_jacSite(self.model, self.data, jac[:3], jac[3:], self.site_id)
-        mujoco.mj_solveM(self.model, self.data, M_inv, np.eye(self.model.nv))
+        # Use Pinocchio to compute Jacobian and inverse mass matrix
+        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
+        pino.computeJointJacobians(self.pino_model, self.pino_data)
+        pino.updateFramePlacements(self.pino_model, self.pino_data)
+        pino_frame_id = self.pino_model.getFrameId("attachment")
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        M = pino.crba(self.pino_model, self.pino_data, self.data.qpos)
+        # M_inv = np.linalg.inv(M)
+        M_inv = pino.computeMinverse(self.pino_model, self.pino_data, self.data.qpos)
 
         J_phi = self.S_f.T @ jac
         J_motion = self.S_v.T @ jac
@@ -615,7 +621,7 @@ class HybridController:
         # ============================================================
         jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
         N2 = np.eye(self.model.nv) - jac_1.T @ jac_1_inv.T
-        tau_ctrl_v = null_space_tau(self.data, self.q0, self.dof_ids, self.config.Kp_null, self.config.Kd_null)
+        tau_ctrl_v = null_space_tau(self.data.qpos[self.dof_ids], self.data.qvel[self.dof_ids], self.q0, self.config.Kp_null, self.config.Kd_null)
         # null space projection
         tau_ctrl_v = N2 @ tau_ctrl_v
 
@@ -645,10 +651,7 @@ class HybridController:
         #------------------------------------------------------
         # Constraint space
         #------------------------------------------------------
-        pino.forwardKinematics(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
-        pino.computeJointJacobians(self.pino_model, self.pino_data)
-        pino.updateFramePlacements(self.pino_model, self.pino_data)
-
+        # Reuse Pinocchio computations from earlier (already computed in step 2)
         C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, self.data.qpos, self.data.qvel)
         pino_frame_id = self.pino_model.getFrameId("attachment")
         J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
@@ -679,8 +682,10 @@ class HybridController:
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
+        # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
-            self.tau += self.data.qfrc_bias[self.dof_ids]
+            g = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, self.data.qpos)
+            self.tau += g[self.dof_ids]
 
         # ============================================================
         # 7. Log Data
@@ -793,7 +798,7 @@ def main() -> None:
     # ============================================================
     xml_path = "kuka_iiwa_14/scene_notarget.xml"
     if not common_config.use_table:
-        xml_path = "kuka_iiwa_14/scene_notable.xml"
+        xml_path = "franka_emika_panda/scene.xml"
         xml_path = add_slope_xml(
             xml_path,
             common_config.euler,
@@ -806,7 +811,7 @@ def main() -> None:
     data = mujoco.MjData(model)
     model.opt.timestep = common_config.dt
 
-    pino_model = pino.buildModelFromMJCF("kuka_iiwa_14/iiwa14.xml")
+    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
     pino_data = pino_model.createData()
 
     # Get robot structure
@@ -828,7 +833,7 @@ def main() -> None:
     circle_controller = HybridController(circle_config, common_config)
 
     # Initialize both controllers
-    if not approach_controller.init(model, data, site_id, dof_ids, actuator_ids):
+    if not approach_controller.init(model, data, pino_model, pino_data, site_id, dof_ids, actuator_ids):
         print("Approach controller init failed!")
         return
 
@@ -855,6 +860,7 @@ def main() -> None:
         )
 
     # Generate target orientation
+    # q = (w, x, y, z)
     target_quat = np.array([0., 1., 0., 0.])
     quat_slope = np.zeros(4)
     mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
