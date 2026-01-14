@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from utils_libfranka import *
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
 from franka_bindings import Robot, Torques, RealtimeConfig
 from scipy.spatial.transform import Rotation
@@ -589,69 +589,69 @@ class HybridController:
         return not self.is_drawing
 
 
-def plot_results(
-        approach_controller: CartesianSpacePDController,
-        circle_controller: HybridController,
-        dt: float,
-        transition_time: float
-) -> None:
-    """Plot results from both controllers."""
+# def plot_results(
+#         approach_controller: CartesianSpacePDController,
+#         circle_controller: HybridController,
+#         dt: float,
+#         transition_time: float
+# ) -> None:
+#     """Plot results from both controllers."""
 
-    # Combine data from both controllers
-    all_ee_pos = approach_controller.ee_positions + circle_controller.ee_positions
-    all_target_pos = approach_controller.target_positions + circle_controller.target_positions
+#     # Combine data from both controllers
+#     all_ee_pos = approach_controller.ee_positions + circle_controller.ee_positions
+#     all_target_pos = approach_controller.target_positions + circle_controller.target_positions
 
-    # ============================================================
-    # Plot Position Tracking
-    # ============================================================
-    ee_positions = np.array(all_ee_pos)
-    target_positions = np.array(all_target_pos)
-    time_steps = np.arange(len(ee_positions)) * dt
+#     # ============================================================
+#     # Plot Position Tracking
+#     # ============================================================
+#     ee_positions = np.array(all_ee_pos)
+#     target_positions = np.array(all_target_pos)
+#     time_steps = np.arange(len(ee_positions)) * dt
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
-    axes_labels = ['X', 'Y', 'Z']
+#     fig, axes = plt.subplots(3, 1, figsize=(10, 8))
+#     axes_labels = ['X', 'Y', 'Z']
 
-    for i in range(3):
-        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
-        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
-        axes[i].axvline(transition_time, color='g', linestyle=':', label='Transition')
-        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
-        axes[i].legend()
-        axes[i].grid(True, alpha=0.3)
-        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
+#     for i in range(3):
+#         axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
+#         axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
+#         axes[i].axvline(transition_time, color='g', linestyle=':', label='Transition')
+#         axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
+#         axes[i].legend()
+#         axes[i].grid(True, alpha=0.3)
+#         axes[i].set_title(f'{axes_labels[i]} Position Tracking')
 
-    axes[2].set_xlabel('Time (s)')
-    plt.tight_layout()
-    fig.savefig("plots/combined_position_tracking.png")
+#     axes[2].set_xlabel('Time (s)')
+#     plt.tight_layout()
+#     fig.savefig("plots/combined_position_tracking.png")
 
-    # ============================================================
-    # Plot Contact Forces (Circle Drawing Phase Only)
-    # ============================================================
-    contact_forces = np.array(circle_controller.contact_forces)
-    desired_forces = np.array(circle_controller.desired_forces)
+#     # ============================================================
+#     # Plot Contact Forces (Circle Drawing Phase Only)
+#     # ============================================================
+#     contact_forces = np.array(circle_controller.contact_forces)
+#     desired_forces = np.array(circle_controller.desired_forces)
 
-    if len(contact_forces) > 0:
-        if contact_forces.ndim == 1:
-            contact_forces = contact_forces[:, None]
-            desired_forces = desired_forces[:, None]
+#     if len(contact_forces) > 0:
+#         if contact_forces.ndim == 1:
+#             contact_forces = contact_forces[:, None]
+#             desired_forces = desired_forces[:, None]
 
-        timesteps, n_dim = contact_forces.shape
-        t = np.arange(timesteps) * dt + transition_time
+#         timesteps, n_dim = contact_forces.shape
+#         t = np.arange(timesteps) * dt + transition_time
 
-        plt.figure(figsize=(8, 3 * n_dim))
-        for i in range(n_dim):
-            plt.subplot(n_dim, 1, i + 1)
-            plt.plot(t, contact_forces[:, i], label="Contact force")
-            plt.plot(t, desired_forces[:, 0], label="Desired force")
-            plt.ylabel(f"Dim {i + 1}")
-            plt.xlabel("Time [s]")
-            plt.legend()
-            plt.grid(True)
-        plt.tight_layout()
-        plt.savefig("plots/contact_forces.png")
+#         plt.figure(figsize=(8, 3 * n_dim))
+#         for i in range(n_dim):
+#             plt.subplot(n_dim, 1, i + 1)
+#             plt.plot(t, contact_forces[:, i], label="Contact force")
+#             plt.plot(t, desired_forces[:, 0], label="Desired force")
+#             plt.ylabel(f"Dim {i + 1}")
+#             plt.xlabel("Time [s]")
+#             plt.legend()
+#             plt.grid(True)
+#         plt.tight_layout()
+#         plt.savefig("plots/contact_forces.png")
 
-    plt.show()
-    print("[PLOT] Results saved to plots/ directory")
+#     plt.show()
+#     print("[PLOT] Results saved to plots/ directory")
 
 
 def main() -> None:
@@ -820,7 +820,7 @@ def main() -> None:
             # 7. Plot Results
             # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
+            # plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
         except KeyboardInterrupt:
             print("\nControl interrupted by user")
             # Send zero torques
