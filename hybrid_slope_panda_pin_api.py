@@ -1,10 +1,14 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# 1. Use pinocchio to load model dynamics and calculate jac, M and g
-# 2. Using libfranka for robot states and send control signal
+# 1. Prepare class structure for franka robot control
+# 2. Use pinocchio to load model dynamics and calculate jac, M and g
+# 3. Use mujuco only for robot states and send control signal
+# 4. use libfranka wrapper api
 # ------------------------------------------------------------------------------
 import argparse
+import mujoco
+import mujoco.viewer
 import numpy as np
 import time
 import pinocchio as pino
@@ -12,10 +16,10 @@ from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from utils_libfranka import *
+from utils import *
 import matplotlib.pyplot as plt
-# from geom_visualizer import visualize_normal_arrow, reset_scene
-from franka_bindings import Robot, Torques, RealtimeConfig
+from geom_visualizer import visualize_normal_arrow, reset_scene
+from mujoco_robot_interface import MujocoRobotInterface, MujocoRobotState, Torques
 from scipy.spatial.transform import Rotation
 
 def generate_circle_trajectory(elapsed_time: float,
@@ -677,17 +681,11 @@ def main() -> None:
     pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
     pino_data = pino_model.createData()
     try:
-        # Connect to robot
-        print(f"Connecting to robot at {args.ip}...")
-        robot = Robot(args.ip)
 
-        # Set collision behavior
-        robot.set_collision_behavior(
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-        )
+    # # Set visualization
+    # for i in range(model.ngeom):
+    #     model.geom_rgba[i, 3] = 0.5
+    # model.opt.cone = 0
 
         # Safety warning
         print("\n" + "="*60)
@@ -709,6 +707,8 @@ def main() -> None:
         # ============================================================
         # 4. Setup Initial Targets
         # ============================================================
+        # # Reset to home
+        # robot.reset_to_keyframe("home")
 
         # Generate target position
         R_slope = euler_to_rot_matrix(common_config.euler)
@@ -731,7 +731,7 @@ def main() -> None:
 
         # Start torque control
         print("\nStarting torque control...")
-        active_control = robot.start_torque_control()
+        active_control = MujocoRobotInterface(common_config)
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
@@ -739,7 +739,7 @@ def main() -> None:
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(target_pos, target_quat, q0, pino_data, pino_model)
+        approach_controller.starting(target_pos, target_quat, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
@@ -748,10 +748,18 @@ def main() -> None:
         # ============================================================
         # 6. Run Control Loop
         # ============================================================
-        sim_time = 0.0
-        transition_time = 0.0
-        try:
-            while True:
+        with mujoco.viewer.launch_passive(
+            active_control.model, active_control.data,
+            show_left_ui=False, show_right_ui=False
+        ) as viewer:
+            # Reset the simulation.
+            active_control.reset_to_keyframe()
+            mujoco.mjv_defaultFreeCamera(active_control.model, viewer.cam)
+
+            sim_time = 0.0
+            transition_time = 0.0
+
+            while viewer.is_running():
                 step_start = time.time()
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
@@ -807,43 +815,31 @@ def main() -> None:
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
 
-                # Update time
-                sim_time += duration.to_sec()
+                # Update viewer
+                viewer.sync()
 
-                # # # Maintain control rate (1kHz)
-                # elapsed = time.time() - step_start
-                # if elapsed < common_config.dt:
-                #     time.sleep(common_config.dt - elapsed)
+                # Maintain real-time rate
+                time_until_next_step = common_config.dt - (time.time() - step_start)
+                if time_until_next_step > 0:
+                    time.sleep(time_until_next_step)
 
-                # sim_time += common_config.dt
-            # ============================================================
-            # 7. Plot Results
-            # ============================================================
-            print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
-        except KeyboardInterrupt:
-            print("\nControl interrupted by user")
-            # Send zero torques
-            torque_cmd = Torques([0.0] * 7)
-            torque_cmd.motion_finished = True
-            active_control.writeOnce(torque_cmd)
+                sim_time += common_config.dt
+        
+        # ============================================================
+        # 7. Plot Results
+        # ============================================================
+        print("\n[MAIN] Simulation complete. Generating plots...")
+        plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
-    
     except Exception as e:
         print(f"\nError occurred: {e}")
         import traceback
         traceback.print_exc()
-        if robot is not None:
-            robot.stop()
         return -1
-    finally:
-        robot.stop()
 
-    
-
-    return 0
+        
 
 if __name__ == "__main__":
     main()

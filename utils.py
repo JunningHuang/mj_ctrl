@@ -4,6 +4,7 @@ from scipy.linalg import pinv
 import mujoco
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from scipy.spatial.transform import Rotation
 
 
 def constraint_jacobian(jac, pos, cylinder_center):
@@ -230,16 +231,11 @@ def force_dot(S_f, Compliance_matrix, jac, data, dof_ids):
     F_dot = Sf_pinv @ K_effective @ jac @ data.qvel[dof_ids]
     return F_dot
 
-def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95):
+def compute_ee_pose_error_mujoco(target_pos, current_pos, target_quat, current_mat, Kpos=0.95):
     twist = np.zeros(6)
     site_quat = np.zeros(4)
     site_quat_conj = np.zeros(4)
     error_quat = np.zeros(4)
-    # Kpos Gains for the twist computation. These should be between 0 and 1. 0 means no
-    # movement, 1 means move the end-effector to the target in one integration step.
-    # Gain for the orientation component of the twist computation. This should be
-    # between 0 and 1. 0 means no movement, 1 means move the end-effector to the target
-    # orientation in one integrati on step.
     Kori: float = 0.95
 
     dx = target_pos - current_pos
@@ -251,6 +247,22 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
     # twist[3:] *= Kori
     return twist
 
+def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95):
+    twist = np.zeros(6)
+    Kori: float = 0.95
+    dx = target_pos - current_pos
+    twist[:3] = Kpos * dx
+
+    if np.all(current_mat == 0):
+        rot_current = Rotation.from_matrix(np.eye(3))
+    else:
+        rot_current = Rotation.from_matrix(current_mat.reshape(3,3))
+    rot_target = Rotation.from_quat(target_quat, scalar_first=True)
+    
+    R_error = rot_target * rot_current.inv()
+    twist[3:] = R_error.as_rotvec()
+
+    return twist
 
 def check_world_ee_contact_force(data, model, obj_name='board'):
     current_force_world = np.zeros(6)
