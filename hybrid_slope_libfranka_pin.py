@@ -15,7 +15,7 @@ from enum import Enum
 from utils_libfranka import *
 # import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
-from franka_bindings import Robot, Torques, RealtimeConfig
+from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
 
 def generate_circle_trajectory(elapsed_time: float,
@@ -349,7 +349,7 @@ class HybridController:
 
         self.R_slope = euler_to_rot_matrix(self.common_config.euler)
         rot_slope = Rotation.from_euler('xyz', self.common_config.euler)
-        self.quat_slope = rot_slope.as_quat(scalar_first=True)
+        self.quat_slope = np.roll(rot_slope.as_quat(),1)
 
         self.R = np.zeros((6, 6))
         self.R[0:3, 0:3] = self.R_slope
@@ -674,7 +674,7 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_emika_panda/panda_nohand.xml")
     pino_data = pino_model.createData()
     try:
         # Connect to robot
@@ -726,8 +726,8 @@ def main() -> None:
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
         rot_slope = Rotation.from_euler('xyz', common_config.euler)
-        rot_target = Rotation.from_quat(target_quat, scalar_first=True)
-        target_quat = (rot_slope * rot_target).as_quat(scalar_first=True)
+        rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+        target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
 
         # Start torque control
         print("\nStarting torque control...")
