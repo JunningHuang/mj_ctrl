@@ -77,7 +77,7 @@ class ControllerConfig:
     angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
-    position_tolerance: float = 0.01  # 1cm tolerance for reaching target
+    position_tolerance: float = 0.05  # 1cm tolerance for reaching target
 
     # Constraint geometry
     euler: np.ndarray = None
