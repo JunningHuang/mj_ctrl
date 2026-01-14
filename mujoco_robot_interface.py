@@ -123,6 +123,7 @@ class MujocoRobotInterface:
 
         # Get external forces from contact sensors
         O_F_ext_hat_K = self._estimate_external_forces()
+        # O_F_ext_hat_K = np.zeros(6)
 
         return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K), self.model.opt.timestep
 

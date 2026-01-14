@@ -257,7 +257,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
         rot_current = Rotation.from_matrix(np.eye(3))
     else:
         rot_current = Rotation.from_matrix(current_mat.reshape(3,3))
-    rot_target = Rotation.from_quat(target_quat, scalar_first=True)
+    rot_target = Rotation.from_quat(np.roll(target_quat, -1))
     
     R_error = rot_target * rot_current.inv()
     twist[3:] = R_error.as_rotvec()
