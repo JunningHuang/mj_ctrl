@@ -739,7 +739,7 @@ def main() -> None:
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(target_pos, target_quat, q0, pino_data, pino_model)
+        approach_controller.starting(target_pos, target_quat, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
