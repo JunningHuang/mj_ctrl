@@ -489,7 +489,8 @@ class HybridController:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
         # else:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
-        F_ext_world = np.array(robot_state.O_F_ext_hat_K)
+        # F_ext_world = np.array(robot_state.O_F_ext_hat_K)
+        F_ext_world = np.zeros(6)
         # TODO
         current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc

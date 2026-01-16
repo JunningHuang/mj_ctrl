@@ -683,12 +683,12 @@ def main() -> None:
         robot = Robot(args.ip)
 
         # Set collision behavior
-        robot.set_collision_behavior(
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-        )
+        # robot.set_collision_behavior(
+        #     [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+        #     [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+        #     [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+        #     [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+        # )
 
         # Safety warning
         print("\n" + "="*60)
@@ -834,7 +834,6 @@ def main() -> None:
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
-    
     except Exception as e:
         print(f"\nError occurred: {e}")
         import traceback
@@ -845,7 +844,7 @@ def main() -> None:
     finally:
         robot.stop()
 
-    
+        
 
     return 0
 
