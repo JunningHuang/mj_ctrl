@@ -485,7 +485,8 @@ class HybridController:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
         # else:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
-        F_ext_world = np.array(robot_state.O_F_ext_hat_K)
+        # F_ext_world = np.array(robot_state.O_F_ext_hat_K)
+        F_ext_world = np.zeros(6)
         # TODO
         current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc
@@ -762,7 +763,10 @@ def main() -> None:
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
                     tau = approach_controller.update(robot_state)
-
+                    if sim_time >= 0.5:
+                        print("------end effector positions-------")
+                        O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
+                        print(O_T_EE_temp[:3, 3])
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
