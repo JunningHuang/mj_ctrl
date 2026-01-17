@@ -81,19 +81,19 @@ class ControllerConfig:
     angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
-    position_tolerance: float = 0.05  # 1cm tolerance for reaching target
+    position_tolerance: float = 0.01  # 1cm tolerance for reaching target
 
     # Constraint geometry
     euler: np.ndarray = None
-    size_z: float = 0.01
+    size_z: float = 0.00
     use_table: bool = False
 
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.45])
+            self.circle_center = np.array([0.5, 0.0, 0])
         if self.euler is None:
-            self.euler = np.array([np.deg2rad(-10), 0, 0])
+            self.euler = np.array([np.deg2rad(0), 0, 0])
 
 
 @dataclass
@@ -116,9 +116,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -274,15 +274,15 @@ class CartesianSpacePDController:
         # ============================================================
         # 5. Add Nullspace Control
         # ============================================================
-        Jbar = M_inv @ jac.T @ Mx
-        ddq = null_space_tau(
-            q,
-            dq,
-            self.q0,
-            self.config.Kp_null,
-            self.config.Kd_null
-        )
-        self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
+        # Jbar = M_inv @ jac.T @ Mx
+        # ddq = null_space_tau(
+        #     q,
+        #     dq,
+        #     self.q0,
+        #     self.config.Kp_null,
+        #     self.config.Kd_null
+        # )
+        # self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
 
         # ============================================================
         # 6. Add Gravity Compensation
@@ -489,8 +489,7 @@ class HybridController:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
         # else:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
-        # F_ext_world = np.array(robot_state.O_F_ext_hat_K)
-        F_ext_world = np.zeros(6)
+        F_ext_world = np.array(robot_state.O_F_ext_hat_K)
         # TODO
         current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc

@@ -69,13 +69,13 @@ class MujocoRobotInterface:
             joint_names: List of joint names to control (default: Panda arm joints)
         """
         xml_path = "franka_emika_panda/scene.xml"
-        xml_path = add_slope_xml(
-            xml_path,
-            common_config.euler,
-            common_config.size_z,
-            common_config.circle_radius,
-            common_config.circle_center
-        )
+        # xml_path = add_slope_xml(
+        #     xml_path,
+        #     common_config.euler,
+        #     common_config.size_z,
+        #     common_config.circle_radius,
+        #     common_config.circle_center
+        # )
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.opt.timestep = common_config.dt
         self.data = mujoco.MjData(self.model)
@@ -122,8 +122,8 @@ class MujocoRobotInterface:
         O_T_EE_flat = O_T_EE.T.flatten()
 
         # Get external forces from contact sensors
-        O_F_ext_hat_K = self._estimate_external_forces()
-
+        O_F_ext_hat_K = self._estimate_external_forces(obj_name="floor")
+        # O_F_ext_hat_K = np.zeros(6)
         return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K), self.model.opt.timestep
 
     def _estimate_external_forces(self, obj_name='slope_geom') -> np.ndarray:
