@@ -274,15 +274,15 @@ class CartesianSpacePDController:
         # ============================================================
         # 5. Add Nullspace Control
         # ============================================================
-        # Jbar = M_inv @ jac.T @ Mx
-        # ddq = null_space_tau(
-        #     q,
-        #     dq,
-        #     self.q0,
-        #     self.config.Kp_null,
-        #     self.config.Kd_null
-        # )
-        # self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
+        Jbar = M_inv @ jac.T @ Mx
+        ddq = null_space_tau(
+            q,
+            dq,
+            self.q0,
+            self.config.Kp_null,
+            self.config.Kd_null
+        )
+        self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
 
         # ============================================================
         # 6. Add Gravity Compensation
@@ -673,7 +673,8 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
-    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
 
     # ============================================================
     # 2. Load Model

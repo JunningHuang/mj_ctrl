@@ -81,15 +81,15 @@ class ControllerConfig:
 
     # Constraint geometry
     euler: np.ndarray = None
-    size_z: float = 0.01
+    size_z: float = 0.00
     use_table: bool = False
 
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.45])
+            self.circle_center = np.array([0.5, 0.0, 0])
         if self.euler is None:
-            self.euler = np.array([np.deg2rad(-10), 0, 0])
+            self.euler = np.array([np.deg2rad(0), 0, 0])
 
 
 @dataclass
@@ -112,9 +112,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
