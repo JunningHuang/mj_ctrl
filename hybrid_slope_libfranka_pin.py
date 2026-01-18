@@ -21,7 +21,8 @@ import logging
 
 logging.basicConfig(
     filename="robot.log",
-    level=logging.INFO
+    level=logging.INFO,
+    filemode="w"
 )
 
 def generate_circle_trajectory(elapsed_time: float,
@@ -519,6 +520,11 @@ class HybridController:
                     self.target_quat,
                     current_mat.flatten()
                     )
+        logging.info("current pos: %s", current_pos)
+        logging.info("current mat: %s", current_mat)
+        logging.info("target pos: %s", self.target_pos)
+        logging.info("target quat: %s", self.target_quat)
+
         
         x_ddot_desired_sel = np.concatenate([self.x_ddot_desired, [0,0,0]]) @ self.S_v
         x_tilde = twist @ self.S_v
@@ -772,9 +778,6 @@ def main() -> None:
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
                     tau = approach_controller.update(robot_state)
-                    O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
-                    logging.info("current position: %s", O_T_EE_temp[:3, 3])
-                    logging.info("current rotation: %s", O_T_EE_temp[:3, :3])
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
