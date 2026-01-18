@@ -560,7 +560,8 @@ class HybridController:
         #------------------------------------------------------
         # Sum up torques
         #------------------------------------------------------
-        self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+        # self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+        self.tau[:] = tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
         self._last_control_compensation = control_force_compensation
