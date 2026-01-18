@@ -274,10 +274,6 @@ class CartesianSpacePDController:
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
 
-        logging.info("twist: %s", twist)
-        logging.info("tau: %s", self.tau)
-        logging.info("current rotation: %s", current_mat.flatten())
-
         # ============================================================
         # 5. Add Nullspace Control
         # ============================================================
@@ -431,6 +427,7 @@ class HybridController:
         print(f"[CIRCLE START] Center: {self.common_config.circle_center}")
         print(f"[CIRCLE START] Radius: {self.common_config.circle_radius}")
         print(f"[CIRCLE START] Force control: F_desired={self.config.F_desired_contact}")
+        print(f"[CIRCLE START] target quat = {self.target_quat}")
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
@@ -756,10 +753,7 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
-
-        # print(target_quat)
-        # rot_target_tmp = Rotation.from_quat(np.roll(target_quat, -1))
-        # print(rot_target_tmp.as_matrix())
+        print(f"Target Quat: {target_quat}")
 
         # ============================================================
         # 6. Run Control Loop
@@ -778,11 +772,9 @@ def main() -> None:
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
                     tau = approach_controller.update(robot_state)
-                    if sim_time >= 0.5:
-                        print("------end effector positions-------")
-                        O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
-                        print(O_T_EE_temp[:3, 3])
-                        print(O_T_EE_temp[:3, :3])
+                    O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
+                    logging.info("current position: %s", O_T_EE_temp[:3, 3])
+                    logging.info("current rotation: %s", O_T_EE_temp[:3, :3])
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)

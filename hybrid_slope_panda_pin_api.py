@@ -779,6 +779,11 @@ def main() -> None:
                         print("PHASE 2: CIRCLE DRAWING")
                         print("=" * 60 + "\n")
 
+                        O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
+                        np.set_printoptions(suppress=True)
+                        print(O_T_EE_temp[:3, 3])
+                        print(O_T_EE_temp[:3, :3])
+
                         if args.approach_only:
                             print("Approach-only mode: stopping here.")
                             control_phase = ControlPhase.STOPPED
