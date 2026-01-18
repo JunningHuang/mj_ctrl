@@ -560,8 +560,8 @@ class HybridController:
         #------------------------------------------------------
         # Sum up torques
         #------------------------------------------------------
-        # self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
-        self.tau[:] = tau_ctrl_x + tau_ctrl_v
+        self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+        # self.tau[:] = tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
         self._last_control_compensation = control_force_compensation
@@ -578,18 +578,18 @@ class HybridController:
         # ============================================================
         # 7. Log Data
         # ============================================================
-        self._log_data(current_force_local, current_pos, contact_pos=None)
+        self._log_data(current_force_local, current_pos)
 
         return self.tau
 
-    def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray, contact_pos: Optional[np.ndarray]) -> None:
+    def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray) -> None:
         """Log data for plotting."""
         self.contact_forces.append(F_ext_local[:3].copy())
         self.desired_forces.append(-self.config.F_desired_contact.copy())
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
 
-        if contact_pos is not None and hasattr(self, '_last_control_compensation'):
+        if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
             self.contact_force_compensation_arr.append(self._last_contact_compensation.copy())
             self.velocity_term_arr.append(self._last_velocity_term.copy())
@@ -685,7 +685,8 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
-    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
 
     # ============================================================
     # 2. Load Model
@@ -837,6 +838,13 @@ def main() -> None:
             # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
             # plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
+            np.savez(
+                "force_details.npz",
+                control_force_compensation_arr=circle_controller.control_force_compensation_arr,
+                contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
+                velocity_term_arr=circle_controller.velocity_term_arr,
+                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr
+                )
         except KeyboardInterrupt:
             print("\nControl interrupted by user")
             # Send zero torques

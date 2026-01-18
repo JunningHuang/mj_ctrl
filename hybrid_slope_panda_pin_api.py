@@ -550,6 +550,7 @@ class HybridController:
         # Sum up torques
         #------------------------------------------------------
         self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+        # self.tau[:] = tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
         self._last_control_compensation = control_force_compensation
@@ -566,18 +567,18 @@ class HybridController:
         # ============================================================
         # 7. Log Data
         # ============================================================
-        self._log_data(current_force_local, current_pos, contact_pos=None)
+        self._log_data(current_force_local, current_pos)
 
         return self.tau
 
-    def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray, contact_pos: Optional[np.ndarray]) -> None:
+    def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray) -> None:
         """Log data for plotting."""
         self.contact_forces.append(F_ext_local[:3].copy())
         self.desired_forces.append(-self.config.F_desired_contact.copy())
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
 
-        if contact_pos is not None and hasattr(self, '_last_control_compensation'):
+        if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
             self.contact_force_compensation_arr.append(self._last_contact_compensation.copy())
             self.velocity_term_arr.append(self._last_velocity_term.copy())
@@ -653,6 +654,48 @@ def plot_results(
             plt.grid(True)
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
+    
+    # ============================================================
+    # Plot Force Decomposition Components
+    # ============================================================
+    if (hasattr(circle_controller, 'control_force_compensation_arr') and 
+        len(circle_controller.control_force_compensation_arr) > 0):
+        
+        control_comp = np.array(circle_controller.control_force_compensation_arr)
+        contact_comp = np.array(circle_controller.contact_force_compensation_arr)
+        velocity_term = np.array(circle_controller.velocity_term_arr)
+        f_ctrl_constraint = np.array(circle_controller.F_ctrl_constraint_arr)
+        
+        timesteps = len(control_comp)
+        t = np.arange(timesteps) * dt + transition_time
+        
+        # Determine number of dimensions
+        if control_comp.ndim == 1:
+            n_dim = 1
+            control_comp = control_comp[:, None]
+            contact_comp = contact_comp[:, None]
+            velocity_term = velocity_term[:, None]
+            f_ctrl_constraint = f_ctrl_constraint[:, None]
+        else:
+            n_dim = control_comp.shape[1]
+        
+        fig, axes = plt.subplots(n_dim, 1, figsize=(12, 3 * n_dim))
+        if n_dim == 1:
+            axes = [axes]
+        
+        for i in range(n_dim):
+            axes[i].plot(t, control_comp[:, i], label='Control Force Compensation', linewidth=2)
+            axes[i].plot(t, contact_comp[:, i], label='Contact Force Compensation', linewidth=2)
+            axes[i].plot(t, velocity_term[:, i], label='Velocity Term', linewidth=2)
+            axes[i].plot(t, f_ctrl_constraint[:, i], label='F_ctrl Constraint', linewidth=2)
+            axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
+            axes[i].legend(loc='best')
+            axes[i].grid(True, alpha=0.3)
+            axes[i].set_title(f'Force Decomposition - Dimension {i + 1}')
+        
+        axes[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        fig.savefig("plots/force_decomposition.png")
 
     plt.show()
     print("[PLOT] Results saved to plots/ directory")
