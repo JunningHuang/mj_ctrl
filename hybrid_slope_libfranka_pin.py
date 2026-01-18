@@ -17,6 +17,12 @@ from utils_libfranka import *
 # from geom_visualizer import visualize_normal_arrow, reset_scene
 from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
+import logging
+
+logging.basicConfig(
+    filename="robot.log",
+    level=logging.INFO
+)
 
 def generate_circle_trajectory(elapsed_time: float,
                                circle_center: np.ndarray,
@@ -87,7 +93,7 @@ class ControllerConfig:
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0])
+            self.circle_center = np.array([0.5, 0.0, 0.2])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
 
@@ -112,9 +118,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -243,6 +249,7 @@ class CartesianSpacePDController:
             Kpos=self.config.Kpos
         )
 
+
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
@@ -266,6 +273,10 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
+
+        logging.info("twist: %s", twist)
+        logging.info("tau: %s", self.tau)
+        logging.info("current rotation: %s", current_mat.flatten())
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -722,7 +733,7 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 1., 0., 0.])
+        target_quat = np.array([0., 0., 1., 0.])
         # quat_slope = np.zeros(4)
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
@@ -746,6 +757,10 @@ def main() -> None:
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
 
+        # print(target_quat)
+        # rot_target_tmp = Rotation.from_quat(np.roll(target_quat, -1))
+        # print(rot_target_tmp.as_matrix())
+
         # ============================================================
         # 6. Run Control Loop
         # ============================================================
@@ -767,6 +782,7 @@ def main() -> None:
                         print("------end effector positions-------")
                         O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
                         print(O_T_EE_temp[:3, 3])
+                        print(O_T_EE_temp[:3, :3])
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
