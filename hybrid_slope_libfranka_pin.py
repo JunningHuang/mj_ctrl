@@ -851,6 +851,14 @@ def main() -> None:
             torque_cmd = Torques([0.0] * 7)
             torque_cmd.motion_finished = True
             active_control.writeOnce(torque_cmd)
+            print("\n[MAIN] Save force detail data into npz file...")
+            np.savez(
+                "force_details.npz",
+                control_force_compensation_arr=circle_controller.control_force_compensation_arr,
+                contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
+                velocity_term_arr=circle_controller.velocity_term_arr,
+                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr
+                )
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
