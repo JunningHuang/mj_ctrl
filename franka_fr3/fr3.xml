@@ -153,14 +153,15 @@
   </worldbody>
 
   <actuator>
-    <position class="fr3" name="fr3_joint1" joint="fr3_joint1" kp="4500" kv="450"/>
-    <position class="fr3" name="fr3_joint2" joint="fr3_joint2" kp="4500" kv="450"/>
-    <position class="fr3" name="fr3_joint3" joint="fr3_joint3" kp="3500" kv="350"/>
-    <position class="fr3" name="fr3_joint4" joint="fr3_joint4" kp="3500" kv="350"/>
-    <position class="fr3" name="fr3_joint5" joint="fr3_joint5" kp="2000" kv="200"/>
-    <position class="fr3" name="fr3_joint6" joint="fr3_joint6" kp="2000" kv="200"/>
-    <position class="fr3" name="fr3_joint7" joint="fr3_joint7" kp="2000" kv="200"/>
+    <motor name="fr3_joint1" joint="fr3_joint1" ctrlrange="-320 320"/>
+    <motor name="fr3_joint2" joint="fr3_joint2" ctrlrange="-320 320"/>
+    <motor name="fr3_joint3" joint="fr3_joint3" ctrlrange="-176 176"/>
+    <motor name="fr3_joint4" joint="fr3_joint4" ctrlrange="-176 176"/>
+    <motor name="fr3_joint5" joint="fr3_joint5" ctrlrange="-110 110"/>
+    <motor name="fr3_joint6" joint="fr3_joint6" ctrlrange="-40 40"/>
+    <motor name="fr3_joint7" joint="fr3_joint7" ctrlrange="-40 40"/>
   </actuator>
+
 
   <contact>
     <exclude body1="fr3_link0" body2="fr3_link1"/>
