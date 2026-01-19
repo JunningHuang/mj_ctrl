@@ -87,8 +87,9 @@ class MujocoRobotInterface:
         # Get joint IDs
         if joint_names is None:
             joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+            actuator_names = ['actuator1', 'actuator2', 'actuator3', 'actuator4', 'actuator5', 'actuator6', 'actuator7']
         self.dof_ids = np.array([self.model.joint(name).id for name in joint_names])
-        self.actuator_ids = np.array([self.model.actuator(name).id for name in joint_names])
+        self.actuator_ids = np.array([self.model.actuator(name).id for name in actuator_names])
 
         # Store last contact force for external force estimation
         self._last_contact_force = np.zeros(6)

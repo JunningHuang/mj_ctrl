@@ -722,7 +722,7 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand_genesis.xml")
     pino_data = pino_model.createData()
     try:
 

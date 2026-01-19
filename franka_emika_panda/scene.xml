@@ -1,5 +1,5 @@
 <mujoco model="panda scene">
-  <include file="panda_nohand.xml"/>
+  <include file="panda_nohand_genesis.xml"/>
 
   <statistic center="0.3 0 0.35" extent="0.8" meansize="0.05"/>
 
