@@ -722,7 +722,7 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("franka_fr3/fr3.xml")
     pino_data = pino_model.createData()
     try:
 
@@ -775,11 +775,7 @@ def main() -> None:
 
         # Start torque control
         print("\nStarting torque control...")
-        active_control = MujocoRobotInterface(
-            common_config,
-            joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"],
-            xml_path="franka_emika_panda/scene.xml"
-            )
+        active_control = MujocoRobotInterface(common_config)
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
