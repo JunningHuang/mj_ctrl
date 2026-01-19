@@ -85,13 +85,13 @@ class ControllerConfig:
 
     # Constraint geometry
     euler: np.ndarray = None
-    size_z: float = 0.00
+    size_z: float = 0.01
     use_table: bool = False
 
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0])
+            self.circle_center = np.array([0.5, 0.0, 0.45])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
 
@@ -469,7 +469,7 @@ class HybridController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
+        pino_frame_id = self.pino_model.getFrameId("attachment_site")
         jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         M = pino.crba(self.pino_model, self.pino_data, q)
         # M_inv = np.linalg.inv(M)
@@ -716,8 +716,8 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
-    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
-    q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
+    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    # q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
 
     # ============================================================
     # 2. Load Model
@@ -765,7 +765,7 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 1., 0., 0.])
+        target_quat = np.array([0., 0.7071, 0.7071, 0.])
         # quat_slope = np.zeros(4)
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
@@ -821,11 +821,6 @@ def main() -> None:
                         print(f"TARGET REACHED at t={sim_time:.2f}s!")
                         print("PHASE 2: CIRCLE DRAWING")
                         print("=" * 60 + "\n")
-
-                        O_T_EE_temp = np.array(robot_state.O_T_EE).reshape(4, 4).T
-                        np.set_printoptions(suppress=True)
-                        print(O_T_EE_temp[:3, 3])
-                        print(O_T_EE_temp[:3, :3])
 
                         if args.approach_only:
                             print("Approach-only mode: stopping here.")
