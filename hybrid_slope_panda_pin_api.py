@@ -254,7 +254,7 @@ class CartesianSpacePDController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
+        pino_frame_id = self.pino_model.getFrameId("attachment_site")
         jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
 
         # ============================================================
@@ -722,7 +722,7 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("franka_fr3/fr3.xml")
     pino_data = pino_model.createData()
     try:
 

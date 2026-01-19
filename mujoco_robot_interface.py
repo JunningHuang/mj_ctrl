@@ -68,7 +68,7 @@ class MujocoRobotInterface:
             site_name: Name of the end-effector site
             joint_names: List of joint names to control (default: Panda arm joints)
         """
-        xml_path = "franka_emika_panda/scene.xml"
+        xml_path = "franka_fr3/scene.xml"
         # xml_path = add_slope_xml(
         #     xml_path,
         #     common_config.euler,
@@ -86,7 +86,7 @@ class MujocoRobotInterface:
 
         # Get joint IDs
         if joint_names is None:
-            joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+            joint_names = ['fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4', 'fr3_joint5', 'fr3_joint6', 'fr3_joint7']
         self.dof_ids = np.array([self.model.joint(name).id for name in joint_names])
         self.actuator_ids = np.array([self.model.actuator(name).id for name in joint_names])
 
