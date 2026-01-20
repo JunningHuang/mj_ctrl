@@ -626,6 +626,7 @@ def plot_results(
         axes[i].set_title(f'{axes_labels[i]} Position Tracking')
 
     axes[2].set_xlabel('Time (s)')
+    fig.suptitle(f'FR3: position tracking')
     plt.tight_layout()
     fig.savefig("plots/combined_position_tracking.png")
 
@@ -643,7 +644,7 @@ def plot_results(
         timesteps, n_dim = contact_forces.shape
         t = np.arange(timesteps) * dt + transition_time
 
-        plt.figure(figsize=(8, 3 * n_dim))
+        fig = plt.figure(figsize=(8, 3 * n_dim))
         for i in range(n_dim):
             plt.subplot(n_dim, 1, i + 1)
             plt.plot(t, contact_forces[:, i], label="Contact force")
@@ -652,6 +653,7 @@ def plot_results(
             plt.xlabel("Time [s]")
             plt.legend()
             plt.grid(True)
+        fig.suptitle(f'FR3: contact forces')
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
     
@@ -691,7 +693,7 @@ def plot_results(
             axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
             axes[i].legend(loc='best')
             axes[i].grid(True, alpha=0.3)
-            axes[i].set_title(f'Force Decomposition - Dimension {i + 1}')
+            axes[i].set_title(f'FR3: Force Decomposition - Dimension {i + 1}')
         
         axes[-1].set_xlabel('Time (s)')
         plt.tight_layout()
