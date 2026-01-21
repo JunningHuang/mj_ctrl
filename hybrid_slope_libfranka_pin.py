@@ -15,7 +15,7 @@ from enum import Enum
 from utils_libfranka import *
 # import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
-from pylibfranka import Robot, Torques
+from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
 import logging
 
