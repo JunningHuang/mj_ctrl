@@ -15,7 +15,7 @@ from enum import Enum
 from utils_libfranka import *
 # import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
-from franka_bindings import Robot, Torques
+from pylibfranka import Robot, Torques
 from scipy.spatial.transform import Rotation
 import logging
 
@@ -94,7 +94,7 @@ class ControllerConfig:
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.2])
+            self.circle_center = np.array([0.5, 0.0, 0.3])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
 
@@ -119,9 +119,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0])
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0])
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -699,12 +699,12 @@ def main() -> None:
         robot = Robot(args.ip)
 
         # Set collision behavior
-        # robot.set_collision_behavior(
-        #     [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-        #     [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-        #     [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-        #     [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-        # )
+        robot.set_collision_behavior(
+            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
+            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+        )
 
         # Safety warning
         print("\n" + "="*60)
@@ -738,7 +738,7 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 0., 1., 0.])
+        target_quat = np.array([0., 1., 0., 0.])
         # quat_slope = np.zeros(4)
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
