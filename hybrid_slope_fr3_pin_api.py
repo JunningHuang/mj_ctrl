@@ -154,9 +154,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0]) * 2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0]) * 2
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
