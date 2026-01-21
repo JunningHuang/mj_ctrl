@@ -40,7 +40,7 @@ def euler_to_rot_matrix(euler):
     
     return R_z @ R_y @ R_x
 
-def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95):
+def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.05, Kori=0.05):
     twist = np.zeros(6)
     # site_quat = np.zeros(4)
     # site_quat_conj = np.zeros(4)
@@ -50,7 +50,6 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
     # # Gain for the orientation component of the twist computation. This should be
     # # between 0 and 1. 0 means no movement, 1 means move the end-effector to the target
     # # orientation in one integrati on step.
-    Kori: float = 0.95
 
     dx = target_pos - current_pos
     twist[:3] = Kpos * dx
@@ -67,7 +66,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
     rot_target = Rotation.from_quat(np.roll(target_quat, -1))
     
     R_error = rot_target * rot_current.inv()
-    twist[3:] = R_error.as_rotvec()
+    twist[3:] = Kori * R_error.as_rotvec()
 
     return twist
 

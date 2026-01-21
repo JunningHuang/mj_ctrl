@@ -18,6 +18,7 @@ from utils_libfranka import *
 from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
 import logging
+import time
 
 logging.basicConfig(
     filename="robot.log",
@@ -119,9 +120,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -130,7 +131,7 @@ class CartesianSpacePDControlConfig:
             damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
             self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
         if self.Kd_null is None:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -157,11 +158,11 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
             self.F_desired_contact = np.array([-10.0])
@@ -274,6 +275,7 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
+        print(f"position control: {np.round(self.tau, 4)}")
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -287,13 +289,16 @@ class CartesianSpacePDController:
             self.config.Kd_null
         )
         self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
+        print(f"null control: {np.round(self.tau, 4)}")
 
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
         # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
+            g_ctrl = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
             self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
+            print(f"g control: {np.round(g_ctrl, 4)}")
 
         # ============================================================
         # 7. Log Data
@@ -685,13 +690,13 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
-    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
-    q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
+    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    # q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
 
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_fr3/fr3.xml")
     pino_data = pino_model.createData()
     try:
         # Connect to robot
@@ -700,10 +705,10 @@ def main() -> None:
 
         # Set collision behavior
         robot.set_collision_behavior(
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
-            [20.0, 20.0, 20.0, 25.0, 25.0, 25.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         )
 
         # Safety warning
@@ -770,9 +775,14 @@ def main() -> None:
         transition_time = 0.0
         try:
             while True:
+                loop_start = time.perf_counter()
                 step_start = time.time()
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
+                try:
+                    print(f"  Last commanded torques from controller: {np.round(robot_state.tau_J, 4).tolist()}")
+                except (AttributeError, TypeError):
+                    print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -821,8 +831,11 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
+                print(f"tau: {tau}")
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
+                loop_end = time.perf_counter()
+                print(f"time: {(loop_end - loop_start) * 1e6}")
 
                 # Update time
                 sim_time += duration.to_sec()
