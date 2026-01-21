@@ -154,9 +154,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0]) * 2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0]) * 2
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -626,6 +626,7 @@ def plot_results(
         axes[i].set_title(f'{axes_labels[i]} Position Tracking')
 
     axes[2].set_xlabel('Time (s)')
+    fig.suptitle(f'FR3: position tracking')
     plt.tight_layout()
     fig.savefig("plots/combined_position_tracking.png")
 
@@ -643,7 +644,7 @@ def plot_results(
         timesteps, n_dim = contact_forces.shape
         t = np.arange(timesteps) * dt + transition_time
 
-        plt.figure(figsize=(8, 3 * n_dim))
+        fig = plt.figure(figsize=(8, 3 * n_dim))
         for i in range(n_dim):
             plt.subplot(n_dim, 1, i + 1)
             plt.plot(t, contact_forces[:, i], label="Contact force")
@@ -652,6 +653,7 @@ def plot_results(
             plt.xlabel("Time [s]")
             plt.legend()
             plt.grid(True)
+        fig.suptitle(f'FR3: contact forces')
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
     
@@ -691,7 +693,7 @@ def plot_results(
             axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
             axes[i].legend(loc='best')
             axes[i].grid(True, alpha=0.3)
-            axes[i].set_title(f'Force Decomposition - Dimension {i + 1}')
+            axes[i].set_title(f'FR3: Force Decomposition - Dimension {i + 1}')
         
         axes[-1].set_xlabel('Time (s)')
         plt.tight_layout()
@@ -722,7 +724,7 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("franka_emika_panda/panda_nohand.xml")
+    pino_model = pino.buildModelFromMJCF("franka_fr3/fr3.xml")
     pino_data = pino_model.createData()
     try:
 
@@ -775,11 +777,7 @@ def main() -> None:
 
         # Start torque control
         print("\nStarting torque control...")
-        active_control = MujocoRobotInterface(
-            common_config,
-            joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"],
-            xml_path="franka_emika_panda/scene.xml"
-            )
+        active_control = MujocoRobotInterface(common_config)
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
