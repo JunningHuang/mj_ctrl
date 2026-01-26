@@ -7,13 +7,14 @@
 import argparse
 import numpy as np
 import time
+import os
 import pinocchio as pino
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 from utils_libfranka import *
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
 from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
@@ -201,6 +202,7 @@ class CartesianSpacePDController:
         # Data logging
         self.ee_positions: list = []
         self.target_positions: list = []
+        self.joint_torques: list = []
 
     def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
@@ -219,6 +221,7 @@ class CartesianSpacePDController:
         # Clear logging
         self.ee_positions = []
         self.target_positions = []
+        self.joint_torques = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -305,6 +308,7 @@ class CartesianSpacePDController:
         # ============================================================
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
+        self.joint_torques.append(self.tau.copy())
 
         return self.tau
 
@@ -396,6 +400,7 @@ class HybridController:
         self.contact_force_compensation_arr: list = []
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
+        self.joint_torques: list = []
 
     def starting(self, current_time: float, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
@@ -425,6 +430,7 @@ class HybridController:
         self.contact_force_compensation_arr = []
         self.velocity_term_arr = []
         self.F_ctrl_constraint_arr = []
+        self.joint_torques = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -593,6 +599,7 @@ class HybridController:
         self.desired_forces.append(-self.config.F_desired_contact.copy())
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
+        self.joint_torques.append(self.tau.copy())
 
         if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
@@ -608,6 +615,50 @@ class HybridController:
     def is_finished(self) -> bool:
         """Check if circle drawing is finished."""
         return not self.is_drawing
+
+
+def plot_joint_torques(
+        approach_controller: CartesianSpacePDController,
+        circle_controller: HybridController,
+        dt: float,
+        transition_time: float
+) -> None:
+    """Plot joint torques from both controllers for each joint."""
+    # Ensure plots directory exists
+    os.makedirs("plots", exist_ok=True)
+
+    # Combine torques from both controllers
+    approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
+    circle_torques = np.array(circle_controller.joint_torques) if circle_controller.joint_torques else np.empty((0, 7))
+
+    all_torques = np.vstack([approach_torques, circle_torques]) if approach_torques.size > 0 and circle_torques.size > 0 else (
+        approach_torques if approach_torques.size > 0 else circle_torques
+    )
+
+    if all_torques.size == 0:
+        print("[PLOT] No torque data to plot")
+        return
+
+    time_steps = np.arange(len(all_torques)) * dt
+
+    # Create figure with 7 subplots (one per joint)
+    fig, axes = plt.subplots(7, 1, figsize=(12, 14), sharex=True)
+    fig.suptitle('Joint Torques Over Time', fontsize=14)
+
+    for i in range(7):
+        axes[i].plot(time_steps, all_torques[:, i], 'b-', linewidth=1.5)
+        if transition_time > 0:
+            axes[i].axvline(transition_time, color='g', linestyle='--', alpha=0.7, label='Transition')
+        axes[i].set_ylabel(f'Joint {i+1} (Nm)')
+        axes[i].grid(True, alpha=0.3)
+        if i == 0 and transition_time > 0:
+            axes[i].legend(loc='upper right')
+
+    axes[-1].set_xlabel('Time (s)')
+    plt.tight_layout()
+    fig.savefig("plots/joint_torques.png", dpi=150)
+    print("[PLOT] Joint torques saved to plots/joint_torques.png")
+    plt.show()
 
 
 # def plot_results(
@@ -856,8 +907,11 @@ def main() -> None:
                 control_force_compensation_arr=circle_controller.control_force_compensation_arr,
                 contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
                 velocity_term_arr=circle_controller.velocity_term_arr,
-                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr
+                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
+                approach_joint_torques=approach_controller.joint_torques,
+                circle_joint_torques=circle_controller.joint_torques
                 )
+            plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
         except KeyboardInterrupt:
             print("\nControl interrupted by user")
             # Send zero torques
@@ -870,8 +924,11 @@ def main() -> None:
                 control_force_compensation_arr=circle_controller.control_force_compensation_arr,
                 contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
                 velocity_term_arr=circle_controller.velocity_term_arr,
-                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr
+                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
+                approach_joint_torques=approach_controller.joint_torques,
+                circle_joint_torques=circle_controller.joint_torques
                 )
+            plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
