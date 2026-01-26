@@ -26,7 +26,8 @@ class CartesianSpacePDControlConfig:
 
     where twist is computed from pose error with gain Kpos.
     """
-    Kpos: float = 0.95  # Position error gain
+    Kpos: float = 0.1  # Position error gain
+    Kori: float = 0.1  # Orientation error gain
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -156,7 +157,8 @@ class CartesianSpacePDController:
             current_pos,
             self.target_quat,
             current_mat.flatten(),
-            Kpos=self.config.Kpos
+            Kpos=self.config.Kpos,
+            Kori=self.config.Kori
         )
 
         # ============================================================

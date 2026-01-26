@@ -116,9 +116,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -127,7 +127,7 @@ class CartesianSpacePDControlConfig:
             damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
             self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
         if self.Kd_null is None:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -154,11 +154,11 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
             self.F_desired_contact = np.array([-10.0])
@@ -247,6 +247,7 @@ class CartesianSpacePDController:
             Kpos=self.config.Kpos
         )
 
+
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
@@ -289,7 +290,8 @@ class CartesianSpacePDController:
         # ============================================================
         # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
-            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
+            g_ctrl = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
+            self.tau += g_ctrl
 
         # ============================================================
         # 7. Log Data
