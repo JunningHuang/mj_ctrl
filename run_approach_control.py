@@ -24,10 +24,12 @@ from mujoco_robot_interface import MujocoRobotInterface, Torques
 
 def plot_approach_results(
     controller: CartesianSpacePDController,
+    torques_log: list,
     dt: float,
-    robot_name: str
+    robot_name: str,
+    n_joints: int = 7
 ) -> None:
-    """Plot position tracking results from approach controller."""
+    """Plot position tracking and joint torques from approach controller."""
 
     if len(controller.ee_positions) == 0:
         print("[PLOT] No data to plot")
@@ -37,6 +39,9 @@ def plot_approach_results(
     target_positions = np.array(controller.target_positions)
     time_steps = np.arange(len(ee_positions)) * dt
 
+    # ============================================================
+    # Plot 1: Position Tracking
+    # ============================================================
     fig, axes = plt.subplots(3, 1, figsize=(10, 8))
     axes_labels = ['X', 'Y', 'Z']
 
@@ -52,8 +57,32 @@ def plot_approach_results(
     fig.suptitle(f'{robot_name.upper()}: Approach Control - Position Tracking')
     plt.tight_layout()
     fig.savefig(f"plots/approach_position_tracking_{robot_name}.png")
+
+    # ============================================================
+    # Plot 2: Joint Torques
+    # ============================================================
+    if len(torques_log) > 0:
+        torques = np.array(torques_log)
+        time_steps_tau = np.arange(len(torques)) * dt
+
+        fig2, axes2 = plt.subplots(n_joints, 1, figsize=(12, 2 * n_joints), sharex=True)
+
+        colors = plt.cm.tab10(np.linspace(0, 1, n_joints))
+
+        for i in range(n_joints):
+            axes2[i].plot(time_steps_tau, torques[:, i], color=colors[i], linewidth=1.5)
+            axes2[i].set_ylabel(f'Joint {i+1} (Nm)')
+            axes2[i].grid(True, alpha=0.3)
+            axes2[i].axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.5)
+
+        axes2[-1].set_xlabel('Time (s)')
+        fig2.suptitle(f'{robot_name.upper()}: Approach Control - Joint Torques')
+        plt.tight_layout()
+        fig2.savefig(f"plots/approach_joint_torques_{robot_name}.png")
+
     plt.show()
     print(f"[PLOT] Results saved to plots/approach_position_tracking_{robot_name}.png")
+    print(f"[PLOT] Results saved to plots/approach_joint_torques_{robot_name}.png")
 
 
 def main() -> None:
@@ -173,6 +202,7 @@ def main() -> None:
 
             sim_time = 0.0
             target_reached = False
+            torques_log = []  # Log joint torques
 
             while viewer.is_running() and sim_time < args.duration:
                 step_start = time.time()
@@ -182,6 +212,9 @@ def main() -> None:
 
                 # Compute control torques
                 tau = approach_controller.update(robot_state)
+
+                # Log torques
+                torques_log.append(tau.copy())
 
                 # Check if target reached
                 if approach_controller.is_target_reached(robot_state) and not target_reached:
@@ -216,7 +249,13 @@ def main() -> None:
         # 9. Plot Results
         # ============================================================
         print("\n[MAIN] Simulation complete. Generating plots...")
-        plot_approach_results(approach_controller, common_config.dt, robot_cfg.name)
+        plot_approach_results(
+            approach_controller,
+            torques_log,
+            common_config.dt,
+            robot_cfg.name,
+            n_joints=robot_cfg.n_joints
+        )
 
         print("\n[MAIN] Approach control finished")
         print(f"Total time: {sim_time:.2f}s")
