@@ -275,7 +275,7 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
-        print(f"position control: {np.round(self.tau, 4)}")
+        logging.info("position control: %s", np.round(self.tau, 4))
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -289,7 +289,7 @@ class CartesianSpacePDController:
             self.config.Kd_null
         )
         self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
-        print(f"null control: {np.round(self.tau, 4)}")
+        # print(f"null control: {np.round(self.tau, 4)}")
 
         # ============================================================
         # 6. Add Gravity Compensation
@@ -297,8 +297,8 @@ class CartesianSpacePDController:
         # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
             g_ctrl = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
-            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
-            print(f"g control: {np.round(g_ctrl, 4)}")
+            self.tau += g_ctrl
+            # print(f"g control: {np.round(g_ctrl, 4)}")
 
         # ============================================================
         # 7. Log Data
@@ -525,10 +525,10 @@ class HybridController:
                     self.target_quat,
                     current_mat.flatten()
                     )
-        logging.info("current pos: %s", current_pos)
-        logging.info("current mat: %s", current_mat)
-        logging.info("target pos: %s", self.target_pos)
-        logging.info("target quat: %s", self.target_quat)
+        # logging.info("current pos: %s", current_pos)
+        # logging.info("current mat: %s", current_mat)
+        # logging.info("target pos: %s", self.target_pos)
+        # logging.info("target quat: %s", self.target_quat)
 
         
         x_ddot_desired_sel = np.concatenate([self.x_ddot_desired, [0,0,0]]) @ self.S_v
@@ -780,7 +780,7 @@ def main() -> None:
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
                 try:
-                    print(f"  Last commanded torques from controller: {np.round(robot_state.tau_J, 4).tolist()}")
+                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
                 except (AttributeError, TypeError):
                     print("  Last commanded torques from controller: <not available>")
 
@@ -831,11 +831,11 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                print(f"tau: {tau}")
+                logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
                 loop_end = time.perf_counter()
-                print(f"time: {(loop_end - loop_start) * 1e6}")
+                logging.info("time: %s", (loop_end - loop_start) * 1e6)
 
                 # Update time
                 sim_time += duration.to_sec()
