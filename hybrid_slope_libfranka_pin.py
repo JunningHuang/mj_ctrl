@@ -16,7 +16,7 @@ from enum import Enum
 from utils_libfranka import *
 import matplotlib.pyplot as plt
 # from geom_visualizer import visualize_normal_arrow, reset_scene
-from franka_bindings import Robot, Torques
+from pylibfranka import Robot, Torques
 from scipy.spatial.transform import Rotation
 import logging
 import time
@@ -111,7 +111,8 @@ class CartesianSpacePDControlConfig:
 
     where twist is computed from pose error with gain Kpos.
     """
-    Kpos: float = 0.95  # Position error gain
+    Kpos: float = 0.05  # Position error gain
+    Kori: float = 0.05
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -251,7 +252,8 @@ class CartesianSpacePDController:
             current_pos,
             self.target_quat,
             current_mat.flatten(),
-            Kpos=self.config.Kpos
+            Kpos=self.config.Kpos,
+            Kori=self.config.Kori
         )
 
 
@@ -278,7 +280,7 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
-        logging.info("position control: %s", np.round(self.tau, 4))
+        # logging.info("position control: %s", np.round(self.tau, 4))
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -658,7 +660,6 @@ def plot_joint_torques(
     plt.tight_layout()
     fig.savefig("plots/joint_torques.png", dpi=150)
     print("[PLOT] Joint torques saved to plots/joint_torques.png")
-    plt.show()
 
 
 # def plot_results(
@@ -770,7 +771,7 @@ def main() -> None:
         print("  2. Emergency stop is accessible")
         print("  3. You understand the trajectory")
         print("="*60)
-        input("Press Enter to continue...")
+        # input("Press Enter to continue...")
 
         # ============================================================
         # 3. Create Controllers
@@ -830,10 +831,10 @@ def main() -> None:
                 step_start = time.time()
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
-                try:
-                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                except (AttributeError, TypeError):
-                    print("  Last commanded torques from controller: <not available>")
+                # try:
+                #     logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
+                # except (AttributeError, TypeError):
+                #     print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -882,7 +883,7 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                logging.info("tau: %s", np.round(tau, 4))
+                # logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
                 loop_end = time.perf_counter()
@@ -938,6 +939,7 @@ def main() -> None:
         traceback.print_exc()
         if robot is not None:
             robot.stop()
+        # plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
         return -1
     finally:
         robot.stop()

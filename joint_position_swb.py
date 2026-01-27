@@ -4,9 +4,14 @@
 import argparse
 import numpy as np
 import pinocchio as pino
-from franka_bindings import Robot, ControllerMode, JointPositions
-
+from pylibfranka import Robot, ControllerMode, JointPositions
+import logging
 from pathlib import Path
+logging.basicConfig(
+    filename="robot_swb.log",
+    level=logging.INFO,
+    filemode="w"
+)
 
 plot_dir = Path("plots_joint_postion")
 plot_dir.mkdir(parents=True, exist_ok=True)
@@ -66,6 +71,10 @@ def main() -> int:
 
         while not finished:
             state, duration = active.readOnce()
+            try:
+                logging.info("Last commanded torques from controller: %s", np.round(state.tau_J_d, 4).tolist())
+            except (AttributeError, TypeError):
+                print("  Last commanded torques from controller: <not available>")
             dt = duration.to_sec()
             t += dt
 
