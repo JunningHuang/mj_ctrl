@@ -8,13 +8,14 @@ import argparse
 import numpy as np
 import time
 import os
+import gc
 import pinocchio as pino
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 from utils_libfranka import *
-import matplotlib.pyplot as plt
+# Defer matplotlib import to plotting time to avoid loading ~0.17s of modules before control loop
 # from geom_visualizer import visualize_normal_arrow, reset_scene
 from franka_bindings import Robot, Torques
 from scipy.spatial.transform import Rotation
@@ -218,6 +219,9 @@ class CartesianSpacePDController:
         self.target_quat = target_quat.copy()
         self.q0 = q0.copy()
 
+        # Cache frame ID to avoid string lookup every iteration
+        self.pino_frame_id = self.pino_model.getFrameId("attachment")
+
         # Clear logging
         self.ee_positions = []
         self.target_positions = []
@@ -262,8 +266,7 @@ class CartesianSpacePDController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
-        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
 
         # ============================================================
         # 3. Compute Task-Space Inertia Matrix
@@ -278,7 +281,6 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
-        logging.info("position control: %s", np.round(self.tau, 4))
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -415,6 +417,9 @@ class HybridController:
         self.pino_model = pino_model
         self.pino_data = pino_data
 
+        # Cache frame ID to avoid string lookup every iteration
+        self.pino_frame_id = self.pino_model.getFrameId("attachment")
+
         self.start_time = current_time
         self.is_drawing = True
 
@@ -485,8 +490,7 @@ class HybridController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
-        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         M = pino.crba(self.pino_model, self.pino_data, q)
         # M_inv = np.linalg.inv(M)
         M_inv = pino.computeMinverse(self.pino_model, self.pino_data, q)
@@ -554,7 +558,7 @@ class HybridController:
         #------------------------------------------------------
         # TODO
         C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, q, dq)
-        J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         J_phi_dot = self.S_f.T @ J_dot
 
         F_ext_x_new = F_ext_x.copy()
@@ -624,6 +628,8 @@ def plot_joint_torques(
         transition_time: float
 ) -> None:
     """Plot joint torques from both controllers for each joint."""
+    import matplotlib.pyplot as plt
+
     # Ensure plots directory exists
     os.makedirs("plots", exist_ok=True)
 
@@ -824,16 +830,31 @@ def main() -> None:
         # ============================================================
         sim_time = 0.0
         transition_time = 0.0
+
+        # Warm up pinocchio computations before entering real-time loop
+        # to trigger any lazy initialization (BLAS, LAPACK, internal caches)
+        _warmup_q = np.array(q0)
+        _warmup_dq = np.zeros(7)
+        pino.forwardKinematics(pino_model, pino_data, _warmup_q, _warmup_dq)
+        pino.computeJointJacobians(pino_model, pino_data)
+        pino.updateFramePlacements(pino_model, pino_data)
+        _warmup_frame_id = pino_model.getFrameId("attachment")
+        pino.getFrameJacobian(pino_model, pino_data, _warmup_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        pino.computeMinverse(pino_model, pino_data, _warmup_q)
+        pino.crba(pino_model, pino_data, _warmup_q)
+        pino.computeGeneralizedGravity(pino_model, pino_data, _warmup_q)
+        pino.computeCoriolisMatrix(pino_model, pino_data, _warmup_q, _warmup_dq)
+        pino.getFrameJacobianTimeVariation(pino_model, pino_data, _warmup_frame_id, pino.LOCAL_WORLD_ALIGNED)
+        del _warmup_q, _warmup_dq, _warmup_frame_id
+
+        # Disable garbage collection during real-time control loop
+        gc.collect()
+        gc.disable()
+
         try:
             while True:
-                loop_start = time.perf_counter()
-                step_start = time.time()
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
-                try:
-                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                except (AttributeError, TypeError):
-                    print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -871,7 +892,6 @@ def main() -> None:
 
                 else:  # STOPPED
                     tau = pino.computeGeneralizedGravity(pino_model, pino_data, np.array(robot_state.q))
-                    # tau = np.array(model.gravity(robot_state))
 
                     # Signal motion finished and exit
                     torque_cmd = Torques(tau.tolist())
@@ -882,11 +902,8 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
-                loop_end = time.perf_counter()
-                logging.info("time: %s", (loop_end - loop_start) * 1e6)
 
                 # Update time
                 sim_time += duration.to_sec()
@@ -897,6 +914,9 @@ def main() -> None:
                 #     time.sleep(common_config.dt - elapsed)
 
                 # sim_time += common_config.dt
+            # Re-enable garbage collection after control loop
+            gc.enable()
+            gc.collect()
             # ============================================================
             # 7. Plot Results
             # ============================================================
@@ -913,6 +933,7 @@ def main() -> None:
                 )
             plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
         except KeyboardInterrupt:
+            gc.enable()
             print("\nControl interrupted by user")
             # Send zero torques
             torque_cmd = Torques([0.0] * 7)
