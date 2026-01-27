@@ -1,13 +1,16 @@
 # ------------------------------------------------------------------------------
 # Hybrid Force-Impedance Control for Fast End-Effector Motions
 # Separated into Approach Controller and Circle Drawing Controller
-# 1. Use pinocchio to load model dynamics and calculate jac, M and g
-# 2. Using libfranka for robot states and send control signal
+# 1. Prepare class structure for franka robot control
+# 2. Use pinocchio to load model dynamics and calculate jac, M and g
+# 3. Use mujuco only for robot states and send control signal
+# 4. use libfranka wrapper api
 # ------------------------------------------------------------------------------
 import argparse
+import mujoco
+import mujoco.viewer
 import numpy as np
 import time
-import os
 import pinocchio as pino
 from typing import Optional, Tuple
 from dataclasses import dataclass
@@ -15,17 +18,9 @@ from enum import Enum
 
 from utils_libfranka import *
 import matplotlib.pyplot as plt
-# from geom_visualizer import visualize_normal_arrow, reset_scene
-from franka_bindings import Robot, Torques
+from geom_visualizer import visualize_normal_arrow, reset_scene
+from mujoco_robot_interface import MujocoRobotInterface, MujocoRobotState, Torques
 from scipy.spatial.transform import Rotation
-import logging
-import time
-
-logging.basicConfig(
-    filename="robot.log",
-    level=logging.INFO,
-    filemode="w"
-)
 
 def generate_circle_trajectory(elapsed_time: float,
                                circle_center: np.ndarray,
@@ -86,17 +81,17 @@ class ControllerConfig:
     angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
-    position_tolerance: float = 0.05  # 1cm tolerance for reaching target
+    position_tolerance: float = 0.01  # 1cm tolerance for reaching target
 
     # Constraint geometry
     euler: np.ndarray = None
-    size_z: float = 0.00
+    size_z: float = 0.01
     use_table: bool = False
 
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.3])
+            self.circle_center = np.array([0.5, 0.0, 0.45])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
 
@@ -121,9 +116,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -132,7 +127,7 @@ class CartesianSpacePDControlConfig:
             damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
             self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
         if self.Kd_null is None:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -159,11 +154,11 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
+            self.impedance_pos = np.asarray([500.0, 500.0, 500.0]) * 2
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
+            self.impedance_ori = np.asarray([250.0, 250.0, 250.0]) * 2
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
             self.F_desired_contact = np.array([-10.0])
@@ -202,7 +197,6 @@ class CartesianSpacePDController:
         # Data logging
         self.ee_positions: list = []
         self.target_positions: list = []
-        self.joint_torques: list = []
 
     def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
@@ -221,7 +215,6 @@ class CartesianSpacePDController:
         # Clear logging
         self.ee_positions = []
         self.target_positions = []
-        self.joint_torques = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -254,7 +247,6 @@ class CartesianSpacePDController:
             Kpos=self.config.Kpos
         )
 
-
         # ============================================================
         # 2. Compute Jacobian
         # ============================================================
@@ -262,7 +254,7 @@ class CartesianSpacePDController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
+        pino_frame_id = self.pino_model.getFrameId("attachment_site")
         jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
 
         # ============================================================
@@ -278,7 +270,6 @@ class CartesianSpacePDController:
         self.tau[:] = jac.T @ Mx @ (
                 self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
-        logging.info("position control: %s", np.round(self.tau, 4))
 
         # ============================================================
         # 5. Add Nullspace Control
@@ -292,23 +283,19 @@ class CartesianSpacePDController:
             self.config.Kd_null
         )
         self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
-        # print(f"null control: {np.round(self.tau, 4)}")
 
         # ============================================================
         # 6. Add Gravity Compensation
         # ============================================================
         # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
-            g_ctrl = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
-            self.tau += g_ctrl
-            # print(f"g control: {np.round(g_ctrl, 4)}")
+            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
 
         # ============================================================
         # 7. Log Data
         # ============================================================
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
-        self.joint_torques.append(self.tau.copy())
 
         return self.tau
 
@@ -400,7 +387,6 @@ class HybridController:
         self.contact_force_compensation_arr: list = []
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
-        self.joint_torques: list = []
 
     def starting(self, current_time: float, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
@@ -430,7 +416,6 @@ class HybridController:
         self.contact_force_compensation_arr = []
         self.velocity_term_arr = []
         self.F_ctrl_constraint_arr = []
-        self.joint_torques = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -439,7 +424,6 @@ class HybridController:
         print(f"[CIRCLE START] Center: {self.common_config.circle_center}")
         print(f"[CIRCLE START] Radius: {self.common_config.circle_radius}")
         print(f"[CIRCLE START] Force control: F_desired={self.config.F_desired_contact}")
-        print(f"[CIRCLE START] target quat = {self.target_quat}")
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
@@ -485,7 +469,7 @@ class HybridController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId("attachment")
+        pino_frame_id = self.pino_model.getFrameId("attachment_site")
         jac = pino.getFrameJacobian(self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         M = pino.crba(self.pino_model, self.pino_data, q)
         # M_inv = np.linalg.inv(M)
@@ -505,8 +489,7 @@ class HybridController:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model)
         # else:
         #     current_force_world, current_force_local, contact_pos = check_world_ee_contact_force(self.data, self.model, obj_name='slope_geom')
-        # F_ext_world = np.array(robot_state.O_F_ext_hat_K)
-        F_ext_world = np.zeros(6)
+        F_ext_world = np.array(robot_state.O_F_ext_hat_K)
         # TODO
         current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc
@@ -531,11 +514,6 @@ class HybridController:
                     self.target_quat,
                     current_mat.flatten()
                     )
-        # logging.info("current pos: %s", current_pos)
-        # logging.info("current mat: %s", current_mat)
-        # logging.info("target pos: %s", self.target_pos)
-        # logging.info("target quat: %s", self.target_quat)
-
         
         x_ddot_desired_sel = np.concatenate([self.x_ddot_desired, [0,0,0]]) @ self.S_v
         x_tilde = twist @ self.S_v
@@ -599,7 +577,6 @@ class HybridController:
         self.desired_forces.append(-self.config.F_desired_contact.copy())
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
-        self.joint_torques.append(self.tau.copy())
 
         if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
@@ -617,113 +594,113 @@ class HybridController:
         return not self.is_drawing
 
 
-def plot_joint_torques(
+def plot_results(
         approach_controller: CartesianSpacePDController,
         circle_controller: HybridController,
         dt: float,
         transition_time: float
 ) -> None:
-    """Plot joint torques from both controllers for each joint."""
-    # Ensure plots directory exists
-    os.makedirs("plots", exist_ok=True)
+    """Plot results from both controllers."""
 
-    # Combine torques from both controllers
-    approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
-    circle_torques = np.array(circle_controller.joint_torques) if circle_controller.joint_torques else np.empty((0, 7))
+    # Combine data from both controllers
+    all_ee_pos = approach_controller.ee_positions + circle_controller.ee_positions
+    all_target_pos = approach_controller.target_positions + circle_controller.target_positions
 
-    all_torques = np.vstack([approach_torques, circle_torques]) if approach_torques.size > 0 and circle_torques.size > 0 else (
-        approach_torques if approach_torques.size > 0 else circle_torques
-    )
+    # ============================================================
+    # Plot Position Tracking
+    # ============================================================
+    ee_positions = np.array(all_ee_pos)
+    target_positions = np.array(all_target_pos)
+    time_steps = np.arange(len(ee_positions)) * dt
 
-    if all_torques.size == 0:
-        print("[PLOT] No torque data to plot")
-        return
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
+    axes_labels = ['X', 'Y', 'Z']
 
-    time_steps = np.arange(len(all_torques)) * dt
-
-    # Create figure with 7 subplots (one per joint)
-    fig, axes = plt.subplots(7, 1, figsize=(12, 14), sharex=True)
-    fig.suptitle('Joint Torques Over Time', fontsize=14)
-
-    for i in range(7):
-        axes[i].plot(time_steps, all_torques[:, i], 'b-', linewidth=1.5)
-        if transition_time > 0:
-            axes[i].axvline(transition_time, color='g', linestyle='--', alpha=0.7, label='Transition')
-        axes[i].set_ylabel(f'Joint {i+1} (Nm)')
+    for i in range(3):
+        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
+        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
+        axes[i].axvline(transition_time, color='g', linestyle=':', label='Transition')
+        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
+        axes[i].legend()
         axes[i].grid(True, alpha=0.3)
-        if i == 0 and transition_time > 0:
-            axes[i].legend(loc='upper right')
+        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
 
-    axes[-1].set_xlabel('Time (s)')
+    axes[2].set_xlabel('Time (s)')
+    fig.suptitle(f'KUKA: position tracking')
     plt.tight_layout()
-    fig.savefig("plots/joint_torques.png", dpi=150)
-    print("[PLOT] Joint torques saved to plots/joint_torques.png")
+    fig.savefig("plots/combined_position_tracking.png")
+
+    # ============================================================
+    # Plot Contact Forces (Circle Drawing Phase Only)
+    # ============================================================
+    contact_forces = np.array(circle_controller.contact_forces)
+    desired_forces = np.array(circle_controller.desired_forces)
+
+    if len(contact_forces) > 0:
+        if contact_forces.ndim == 1:
+            contact_forces = contact_forces[:, None]
+            desired_forces = desired_forces[:, None]
+
+        timesteps, n_dim = contact_forces.shape
+        t = np.arange(timesteps) * dt + transition_time
+
+        fig = plt.figure(figsize=(8, 3 * n_dim))
+        for i in range(n_dim):
+            plt.subplot(n_dim, 1, i + 1)
+            plt.plot(t, contact_forces[:, i], label="Contact force")
+            plt.plot(t, desired_forces[:, 0], label="Desired force")
+            plt.ylabel(f"Dim {i + 1}")
+            plt.xlabel("Time [s]")
+            plt.legend()
+            plt.grid(True)
+        fig.suptitle(f'KUKA: contact forces')
+        plt.tight_layout()
+        plt.savefig("plots/contact_forces.png")
+    
+    # ============================================================
+    # Plot Force Decomposition Components
+    # ============================================================
+    if (hasattr(circle_controller, 'control_force_compensation_arr') and 
+        len(circle_controller.control_force_compensation_arr) > 0):
+        
+        control_comp = np.array(circle_controller.control_force_compensation_arr)
+        contact_comp = np.array(circle_controller.contact_force_compensation_arr)
+        velocity_term = np.array(circle_controller.velocity_term_arr)
+        f_ctrl_constraint = np.array(circle_controller.F_ctrl_constraint_arr)
+        
+        timesteps = len(control_comp)
+        t = np.arange(timesteps) * dt + transition_time
+        
+        # Determine number of dimensions
+        if control_comp.ndim == 1:
+            n_dim = 1
+            control_comp = control_comp[:, None]
+            contact_comp = contact_comp[:, None]
+            velocity_term = velocity_term[:, None]
+            f_ctrl_constraint = f_ctrl_constraint[:, None]
+        else:
+            n_dim = control_comp.shape[1]
+        
+        fig, axes = plt.subplots(n_dim, 1, figsize=(12, 3 * n_dim))
+        if n_dim == 1:
+            axes = [axes]
+        
+        for i in range(n_dim):
+            axes[i].plot(t, control_comp[:, i], label='Control Force Compensation', linewidth=2)
+            axes[i].plot(t, contact_comp[:, i], label='Contact Force Compensation', linewidth=2)
+            axes[i].plot(t, velocity_term[:, i], label='Velocity Term', linewidth=2)
+            axes[i].plot(t, f_ctrl_constraint[:, i], label='F_ctrl Constraint', linewidth=2)
+            axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
+            axes[i].legend(loc='best')
+            axes[i].grid(True, alpha=0.3)
+            axes[i].set_title(f'KUKA: Force Decomposition - Dimension {i + 1}')
+        
+        axes[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        fig.savefig("plots/force_decomposition.png")
+
     plt.show()
-
-
-# def plot_results(
-#         approach_controller: CartesianSpacePDController,
-#         circle_controller: HybridController,
-#         dt: float,
-#         transition_time: float
-# ) -> None:
-#     """Plot results from both controllers."""
-
-#     # Combine data from both controllers
-#     all_ee_pos = approach_controller.ee_positions + circle_controller.ee_positions
-#     all_target_pos = approach_controller.target_positions + circle_controller.target_positions
-
-#     # ============================================================
-#     # Plot Position Tracking
-#     # ============================================================
-#     ee_positions = np.array(all_ee_pos)
-#     target_positions = np.array(all_target_pos)
-#     time_steps = np.arange(len(ee_positions)) * dt
-
-#     fig, axes = plt.subplots(3, 1, figsize=(10, 8))
-#     axes_labels = ['X', 'Y', 'Z']
-
-#     for i in range(3):
-#         axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
-#         axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
-#         axes[i].axvline(transition_time, color='g', linestyle=':', label='Transition')
-#         axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
-#         axes[i].legend()
-#         axes[i].grid(True, alpha=0.3)
-#         axes[i].set_title(f'{axes_labels[i]} Position Tracking')
-
-#     axes[2].set_xlabel('Time (s)')
-#     plt.tight_layout()
-#     fig.savefig("plots/combined_position_tracking.png")
-
-#     # ============================================================
-#     # Plot Contact Forces (Circle Drawing Phase Only)
-#     # ============================================================
-#     contact_forces = np.array(circle_controller.contact_forces)
-#     desired_forces = np.array(circle_controller.desired_forces)
-
-#     if len(contact_forces) > 0:
-#         if contact_forces.ndim == 1:
-#             contact_forces = contact_forces[:, None]
-#             desired_forces = desired_forces[:, None]
-
-#         timesteps, n_dim = contact_forces.shape
-#         t = np.arange(timesteps) * dt + transition_time
-
-#         plt.figure(figsize=(8, 3 * n_dim))
-#         for i in range(n_dim):
-#             plt.subplot(n_dim, 1, i + 1)
-#             plt.plot(t, contact_forces[:, i], label="Contact force")
-#             plt.plot(t, desired_forces[:, 0], label="Desired force")
-#             plt.ylabel(f"Dim {i + 1}")
-#             plt.xlabel("Time [s]")
-#             plt.legend()
-#             plt.grid(True)
-#         plt.tight_layout()
-#         plt.savefig("plots/contact_forces.png")
-
-#     plt.show()
-#     print("[PLOT] Results saved to plots/ directory")
+    print("[PLOT] Results saved to plots/ directory")
 
 
 def main() -> None:
@@ -747,20 +724,14 @@ def main() -> None:
     # ============================================================
     # 2. Load Model
     # ============================================================
-    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_fr3/fr3.xml")
+    pino_model = pino.buildModelFromMJCF("kuka_iiwa_14/iiwa14.xml")
     pino_data = pino_model.createData()
     try:
-        # Connect to robot
-        print(f"Connecting to robot at {args.ip}...")
-        robot = Robot(args.ip)
 
-        # Set collision behavior
-        robot.set_collision_behavior(
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-        )
+    # # Set visualization
+    # for i in range(model.ngeom):
+    #     model.geom_rgba[i, 3] = 0.5
+    # model.opt.cone = 0
 
         # Safety warning
         print("\n" + "="*60)
@@ -782,6 +753,8 @@ def main() -> None:
         # ============================================================
         # 4. Setup Initial Targets
         # ============================================================
+        # # Reset to home
+        # robot.reset_to_keyframe("home")
 
         # Generate target position
         R_slope = euler_to_rot_matrix(common_config.euler)
@@ -794,7 +767,7 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 1., 0., 0.])
+        target_quat = np.array([0., 0.7071, 0.7071, 0.])
         # quat_slope = np.zeros(4)
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
@@ -804,7 +777,11 @@ def main() -> None:
 
         # Start torque control
         print("\nStarting torque control...")
-        active_control = robot.start_torque_control()
+        active_control = MujocoRobotInterface(
+            common_config,
+            joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"],
+            xml_path="kuka_iiwa_14/scene_notable.xml"
+            )
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
@@ -817,23 +794,25 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
-        print(f"Target Quat: {target_quat}")
 
         # ============================================================
         # 6. Run Control Loop
         # ============================================================
-        sim_time = 0.0
-        transition_time = 0.0
-        try:
-            while True:
-                loop_start = time.perf_counter()
+        with mujoco.viewer.launch_passive(
+            active_control.model, active_control.data,
+            show_left_ui=False, show_right_ui=False
+        ) as viewer:
+            # Reset the simulation.
+            active_control.reset_to_keyframe()
+            mujoco.mjv_defaultFreeCamera(active_control.model, viewer.cam)
+
+            sim_time = 0.0
+            transition_time = 0.0
+
+            while viewer.is_running():
                 step_start = time.time()
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
-                try:
-                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                except (AttributeError, TypeError):
-                    print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -841,6 +820,7 @@ def main() -> None:
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
                     tau = approach_controller.update(robot_state)
+
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
@@ -882,53 +862,24 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
-                loop_end = time.perf_counter()
-                logging.info("time: %s", (loop_end - loop_start) * 1e6)
 
-                # Update time
-                sim_time += duration.to_sec()
+                # Update viewer
+                viewer.sync()
 
-                # # # Maintain control rate (1kHz)
-                # elapsed = time.time() - step_start
-                # if elapsed < common_config.dt:
-                #     time.sleep(common_config.dt - elapsed)
+                # Maintain real-time rate
+                time_until_next_step = common_config.dt - (time.time() - step_start)
+                if time_until_next_step > 0:
+                    time.sleep(time_until_next_step)
 
-                # sim_time += common_config.dt
-            # ============================================================
-            # 7. Plot Results
-            # ============================================================
-            print("\n[MAIN] Simulation complete. Generating plots...")
-            # plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
-            np.savez(
-                "force_details.npz",
-                control_force_compensation_arr=circle_controller.control_force_compensation_arr,
-                contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
-                velocity_term_arr=circle_controller.velocity_term_arr,
-                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
-                approach_joint_torques=approach_controller.joint_torques,
-                circle_joint_torques=circle_controller.joint_torques
-                )
-            plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
-        except KeyboardInterrupt:
-            print("\nControl interrupted by user")
-            # Send zero torques
-            torque_cmd = Torques([0.0] * 7)
-            torque_cmd.motion_finished = True
-            active_control.writeOnce(torque_cmd)
-            print("\n[MAIN] Save force detail data into npz file...")
-            np.savez(
-                "force_details.npz",
-                control_force_compensation_arr=circle_controller.control_force_compensation_arr,
-                contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
-                velocity_term_arr=circle_controller.velocity_term_arr,
-                F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
-                approach_joint_torques=approach_controller.joint_torques,
-                circle_joint_torques=circle_controller.joint_torques
-                )
-            plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
+                sim_time += common_config.dt
+        
+        # ============================================================
+        # 7. Plot Results
+        # ============================================================
+        print("\n[MAIN] Simulation complete. Generating plots...")
+        plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
@@ -936,15 +887,9 @@ def main() -> None:
         print(f"\nError occurred: {e}")
         import traceback
         traceback.print_exc()
-        if robot is not None:
-            robot.stop()
         return -1
-    finally:
-        robot.stop()
 
         
-
-    return 0
 
 if __name__ == "__main__":
     main()

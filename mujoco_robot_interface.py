@@ -57,7 +57,8 @@ class MujocoRobotInterface:
         self,
         common_config,
         site_name: str = "attachment_site",
-        joint_names: Optional[list] = None
+        joint_names: Optional[list] = None,
+        xml_path: str = "franka_fr3/scene.xml"
     ):
         """
         Initialize MuJoCo robot interface.
@@ -68,14 +69,13 @@ class MujocoRobotInterface:
             site_name: Name of the end-effector site
             joint_names: List of joint names to control (default: Panda arm joints)
         """
-        xml_path = "franka_emika_panda/scene.xml"
-        # xml_path = add_slope_xml(
-        #     xml_path,
-        #     common_config.euler,
-        #     common_config.size_z,
-        #     common_config.circle_radius,
-        #     common_config.circle_center
-        # )
+        xml_path = add_slope_xml(
+            xml_path,
+            common_config.euler,
+            common_config.size_z,
+            common_config.circle_radius,
+            common_config.circle_center
+        )
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.opt.timestep = common_config.dt
         self.data = mujoco.MjData(self.model)
@@ -86,7 +86,7 @@ class MujocoRobotInterface:
 
         # Get joint IDs
         if joint_names is None:
-            joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+            joint_names = ['fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4', 'fr3_joint5', 'fr3_joint6', 'fr3_joint7']
         self.dof_ids = np.array([self.model.joint(name).id for name in joint_names])
         self.actuator_ids = np.array([self.model.actuator(name).id for name in joint_names])
 
@@ -122,7 +122,7 @@ class MujocoRobotInterface:
         O_T_EE_flat = O_T_EE.T.flatten()
 
         # Get external forces from contact sensors
-        O_F_ext_hat_K = self._estimate_external_forces(obj_name="floor")
+        O_F_ext_hat_K = self._estimate_external_forces()
         # O_F_ext_hat_K = np.zeros(6)
         return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K), self.model.opt.timestep
 
