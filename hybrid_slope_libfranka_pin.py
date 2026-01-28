@@ -23,7 +23,7 @@ import logging
 import time
 
 logging.basicConfig(
-    filename="robot.log",
+    filename="mj_ctrl/robot.log",
     level=logging.INFO,
     filemode="w"
 )
@@ -112,8 +112,8 @@ class CartesianSpacePDControlConfig:
 
     where twist is computed from pose error with gain Kpos.
     """
-    Kpos: float = 0.05  # Position error gain
-    Kori: float = 0.05
+    Kpos: float = 0.1  # Position error gain
+    Kori: float = 0.1
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -123,9 +123,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.1
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.1
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -161,9 +161,9 @@ class HybridControllerConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.2
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.1
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.2
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.1
         if self.Kp_null is None:
             self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
             self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -633,7 +633,7 @@ def plot_joint_torques(
     import matplotlib.pyplot as plt
 
     # Ensure plots directory exists
-    os.makedirs("plots", exist_ok=True)
+    os.makedirs("mj_ctrl/plots", exist_ok=True)
 
     # Combine torques from both controllers
     approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
@@ -664,7 +664,7 @@ def plot_joint_torques(
 
     axes[-1].set_xlabel('Time (s)')
     plt.tight_layout()
-    fig.savefig("plots/joint_torques.png", dpi=150)
+    fig.savefig("mj_ctrl/plots/joint_torques.png", dpi=150)
     print("[PLOT] Joint torques saved to plots/joint_torques.png")
 
 
@@ -907,7 +907,7 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                # logging.info("tau: %s", np.round(tau, 4))
+                logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
 
@@ -965,7 +965,7 @@ def main() -> None:
         traceback.print_exc()
         if robot is not None:
             robot.stop()
-        # plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
+        plot_joint_torques(approach_controller, circle_controller, common_config.dt, transition_time)
         return -1
     finally:
         robot.stop()
