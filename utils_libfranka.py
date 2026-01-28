@@ -40,7 +40,7 @@ def euler_to_rot_matrix(euler):
     
     return R_z @ R_y @ R_x
 
-def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.05, Kori=0.05):
+def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95, Kori=0.95):
     twist = np.zeros(6)
     # site_quat = np.zeros(4)
     # site_quat_conj = np.zeros(4)

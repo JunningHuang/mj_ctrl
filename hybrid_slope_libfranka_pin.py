@@ -97,7 +97,7 @@ class ControllerConfig:
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.5, 0.0, 0.3])
+            self.circle_center = np.array([0.4871, 0.0, 0.044])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
 
@@ -558,7 +558,6 @@ class HybridController:
         #------------------------------------------------------
         # Constraint space
         #------------------------------------------------------
-        # TODO
         C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, q, dq)
         J_dot = pino.getFrameJacobianTimeVariation(self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         J_phi_dot = self.S_f.T @ J_dot
