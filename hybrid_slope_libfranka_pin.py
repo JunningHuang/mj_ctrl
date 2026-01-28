@@ -78,7 +78,7 @@ class ControllerConfig:
     """Configuration parameters shared across all controllers."""
     # Simulation parameters
     dt: float = 0.001 # only for result plotting
-    gravity_compensation: bool = True
+    gravity_compensation: bool = False
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
@@ -907,7 +907,7 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                logging.info("tau: %s", np.round(tau, 4))
+                # logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
 

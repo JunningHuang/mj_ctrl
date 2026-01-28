@@ -75,6 +75,10 @@ def main() -> int:
                 logging.info("Last commanded torques from controller: %s", np.round(state.tau_J_d, 4).tolist())
             except (AttributeError, TypeError):
                 print("  Last commanded torques from controller: <not available>")
+            try:
+                logging.info("Measured link-side joint torques: %s", np.round(state.tau_J, 4).tolist())
+            except (AttributeError, TypeError):
+                print("  Measured link-side joint torques: <not available>")
             dt = duration.to_sec()
             t += dt
 
