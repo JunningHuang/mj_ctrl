@@ -206,7 +206,9 @@ class CartesianSpacePDController:
         self.target_positions: list = []
         self.joint_torques: list = []
 
-    def starting(self, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
+        self.start_time = 0.0
+
+    def starting(self, current_time: float, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
         Reset controller state.
 
@@ -231,16 +233,21 @@ class CartesianSpacePDController:
         # Zero control
         self.tau[:] = 0.0
 
+        self.start_time = current_time
+        self.start_pos = np.array([0.4871, -0.0021, 0.044])
+
         print(f"[APPROACH START] Target position: {self.target_pos}")
         print(f"[APPROACH START] Target quaternion: {self.target_quat}")
 
-    def update(self, robot_state) -> np.ndarray:
+    def update(self, current_time: float, robot_state) -> np.ndarray:
         """
         Compute control torques for approaching target.
 
         Returns:
             Control torques
         """
+        elapsed = current_time - self.start_time
+        
         # Get current state
         q = np.array(robot_state.q)
         dq = np.array(robot_state.dq)
@@ -251,14 +258,10 @@ class CartesianSpacePDController:
         O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
         current_pos = O_T_EE[:3, 3]
         current_mat = O_T_EE[:3, :3]
-        twist = compute_ee_pose_error(
-            self.target_pos,
-            current_pos,
-            self.target_quat,
-            current_mat.flatten(),
-            Kpos=self.config.Kpos,
-            Kori=self.config.Kori
-        )
+
+
+        pos_twist = generate_line_trajectory_delta(elapsed, self.start_pos, self.target_pos, 5.0) 
+        twist = np.concatenate([pos_twist, np.array([0, 0, 0])])
 
 
         # ============================================================
@@ -817,21 +820,21 @@ def main() -> None:
         # model = robot.load_model()
 
         # ============================================================
+        # 6. Run Control Loop
+        # ============================================================
+        sim_time = 0.0
+        transition_time = 0.0
+
+        # ============================================================
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(target_pos, target_quat, q0, pino_model, pino_data)
+        approach_controller.starting(sim_time, target_pos, target_quat, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
         print(f"Target Quat: {target_quat}")
-
-        # ============================================================
-        # 6. Run Control Loop
-        # ============================================================
-        sim_time = 0.0
-        transition_time = 0.0
 
         # Warm up pinocchio computations before entering real-time loop
         # to trigger any lazy initialization (BLAS, LAPACK, internal caches)
@@ -867,7 +870,7 @@ def main() -> None:
                 # ============================================================
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
-                    tau = approach_controller.update(robot_state)
+                    tau = approach_controller.update(sim_time, robot_state)
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)

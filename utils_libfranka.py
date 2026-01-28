@@ -2,6 +2,40 @@ import numpy as np
 from scipy.linalg import pinv
 from scipy.spatial.transform import Rotation
 
+
+def generate_line_trajectory_delta(elapsed_time: float,
+                             start_pos: np.ndarray,
+                             end_pos: np.ndarray,
+                             duration: float):
+    """
+    Generate desired position, velocity, and acceleration for minimum jerk trajectory.
+    Uses the formula: x(t) = x_0 + [10σ³ - 15σ⁴ + 6σ⁵](x_f - x_0), σ = t/T
+    Args:
+        elapsed_time: Elapsed time since start
+        start_pos: Starting position (3D)
+        end_pos: Ending position (3D)
+        duration: Total duration T
+    Returns:
+        Tuple of (position, velocity, acceleration)
+    """
+    # Clamp time to [0, T]
+    t = np.clip(elapsed_time, 0.0, duration)
+    sigma = t / duration
+
+    # Position: x(t) = x_0 + [10σ³ - 15σ⁴ + 6σ⁵](x_f - x_0)
+    s = 10 * sigma**3 - 15 * sigma**4 + 6 * sigma**5
+
+
+    # # Velocity: dx/dt = [30σ² - 60σ³ + 30σ⁴] / T * (x_f - x_0)
+    # ds_dt = (30 * sigma**2 - 60 * sigma**3 + 30 * sigma**4) / duration
+    # x_dot_desired = ds_dt * (end_pos - start_pos)
+
+    # # Acceleration: d²x/dt² = [60σ - 180σ² + 120σ³] / T² * (x_f - x_0)
+    # d2s_dt2 = (60 * sigma - 180 * sigma**2 + 120 * sigma**3) / (duration**2)
+    # x_ddot_desired = d2s_dt2 * (end_pos - start_pos)
+
+    return s * (end_pos - start_pos)
+
 def task_space_inertiaM(M_inv, jac):
     """
     Compute the task-space inertia matrix from the joint-space inverse inertia matrix.
