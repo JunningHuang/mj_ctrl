@@ -82,9 +82,9 @@ class ControllerConfig:
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
-    circle_radius: float = 0.1
+    circle_radius: float = 0.05
     circle_duration: float = 10.0
-    angular_speed: float = np.pi * 2
+    angular_speed: float = np.pi/4
 
     # Contact detection thresholds
     position_tolerance: float = 0.05  # 1cm tolerance for reaching target
@@ -326,6 +326,7 @@ class CartesianSpacePDController:
         O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
         current_pos = O_T_EE[:3, 3]
         distance = np.linalg.norm(current_pos - self.target_pos)
+        logging.info("current distance: %s", distance)
         return distance < self.common_config.position_tolerance
 
 
@@ -747,8 +748,9 @@ def main() -> None:
     common_config = ControllerConfig()
     approach_config = CartesianSpacePDControlConfig()
     circle_config = HybridControllerConfig()
-    q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
+    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
     # q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
+    q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
 
     # ============================================================
     # 2. Load Model
@@ -800,7 +802,7 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 1., 0., 0.])
+        target_quat = np.array([0., 1., 0.128, 0.])
         # quat_slope = np.zeros(4)
         # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
         # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
@@ -855,10 +857,10 @@ def main() -> None:
             while True:
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
-                # try:
-                #     logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                # except (AttributeError, TypeError):
-                #     print("  Last commanded torques from controller: <not available>")
+                try:
+                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
+                except (AttributeError, TypeError):
+                    print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -906,7 +908,7 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                # logging.info("tau: %s", np.round(tau, 4))
+                logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
 
