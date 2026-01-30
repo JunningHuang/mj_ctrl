@@ -25,7 +25,6 @@ def generate_line_trajectory_delta(elapsed_time: float,
     # Position: x(t) = x_0 + [10σ³ - 15σ⁴ + 6σ⁵](x_f - x_0)
     s = 10 * sigma**3 - 15 * sigma**4 + 6 * sigma**5
 
-
     # # Velocity: dx/dt = [30σ² - 60σ³ + 30σ⁴] / T * (x_f - x_0)
     # ds_dt = (30 * sigma**2 - 60 * sigma**3 + 30 * sigma**4) / duration
     # x_dot_desired = ds_dt * (end_pos - start_pos)
@@ -34,7 +33,7 @@ def generate_line_trajectory_delta(elapsed_time: float,
     # d2s_dt2 = (60 * sigma - 180 * sigma**2 + 120 * sigma**3) / (duration**2)
     # x_ddot_desired = d2s_dt2 * (end_pos - start_pos)
 
-    return s * (end_pos - start_pos)
+    return start_pos + s * (end_pos - start_pos)
 
 def task_space_inertiaM(M_inv, jac):
     """
@@ -74,7 +73,7 @@ def euler_to_rot_matrix(euler):
     
     return R_z @ R_y @ R_x
 
-def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpos=0.95, Kori=0.95):
+def compute_ee_pose_error(target_pos, current_pos, target_rot, current_mat, Kpos=0.95, Kori=0.95):
     twist = np.zeros(6)
     # site_quat = np.zeros(4)
     # site_quat_conj = np.zeros(4)
@@ -97,7 +96,7 @@ def compute_ee_pose_error(target_pos, current_pos, target_quat, current_mat, Kpo
         rot_current = Rotation.from_matrix(np.eye(3))
     else:
         rot_current = Rotation.from_matrix(current_mat.reshape(3,3))
-    rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+    rot_target = Rotation.from_matrix(target_rot)
     
     R_error = rot_target * rot_current.inv()
     twist[3:] = Kori * R_error.as_rotvec()

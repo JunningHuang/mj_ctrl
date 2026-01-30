@@ -49,7 +49,7 @@ class ControllerConfig:
     angular_speed: float = np.pi/4
 
     # Contact detection thresholds
-    position_tolerance: float = 0.05  # 1cm tolerance for reaching target
+    position_tolerance: float = 0.01  # 1cm tolerance for reaching target
 
     # Constraint geometry
     euler: np.ndarray = None
@@ -85,9 +85,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 1
+            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.5
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 1
+            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.5
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -126,7 +126,7 @@ class CartesianSpacePDController:
 
         # Target pose
         self.target_pos: Optional[np.ndarray] = None
-        self.target_quat: Optional[np.ndarray] = None
+        self.target_rot: Optional[np.ndarray] = None
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
         # Control output
@@ -139,7 +139,7 @@ class CartesianSpacePDController:
 
         self.start_time = 0.0
 
-    def starting(self, current_time: float, target_pos: np.ndarray, target_quat: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
+    def starting(self, current_time: float, target_pos: np.ndarray, target_rot: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
         Reset controller state.
 
@@ -150,7 +150,7 @@ class CartesianSpacePDController:
         self.pino_model = pino_model
         self.pino_data = pino_data
         self.target_pos = target_pos.copy()
-        self.target_quat = target_quat.copy()
+        self.target_rot = target_rot.copy()
         self.q0 = q0.copy()
 
         # Cache frame ID to avoid string lookup every iteration
@@ -168,7 +168,7 @@ class CartesianSpacePDController:
         self.start_pos = np.array([0.4871, -0.0021, 0.044])
 
         print(f"[APPROACH START] Target position: {self.target_pos}")
-        print(f"[APPROACH START] Target quaternion: {self.target_quat}")
+        print(f"[APPROACH START] Target quaternion: {self.target_rot}")
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
@@ -191,8 +191,14 @@ class CartesianSpacePDController:
         current_mat = O_T_EE[:3, :3]
 
 
-        pos_twist = generate_line_trajectory_delta(elapsed, self.start_pos, self.target_pos, 5.0) 
-        twist = np.concatenate([pos_twist, np.array([0, 0, 0])])
+        tmp_target_pos = generate_line_trajectory_delta(elapsed, self.start_pos, self.target_pos, 5.0) 
+        twist = compute_ee_pose_error(
+            tmp_target_pos,
+            current_pos,
+            self.target_rot,
+            current_mat)
+        
+        logging.info("twist: %s", np.round(twist, 4))
 
 
         # ============================================================
@@ -260,7 +266,7 @@ class CartesianSpacePDController:
         O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
         current_pos = O_T_EE[:3, 3]
         distance = np.linalg.norm(current_pos - self.target_pos)
-        logging.info("current distance: %s", distance)
+        # logging.info("current distance: %s", distance)
         return distance < self.common_config.position_tolerance
 
 
@@ -273,7 +279,7 @@ def plot_joint_torques(
     import matplotlib.pyplot as plt
 
     # Ensure plots directory exists
-    os.makedirs("mj_ctrl/plots", exist_ok=True)
+    os.makedirs("mj_ctrl/plots/approach", exist_ok=True)
 
     # Combine torques from both controllers
     approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
@@ -299,8 +305,8 @@ def plot_joint_torques(
 
     axes[-1].set_xlabel('Time (s)')
     plt.tight_layout()
-    fig.savefig("mj_ctrl/plots/joint_torques.png", dpi=150)
-    print("[PLOT] Joint torques saved to plots/joint_torques.png")
+    fig.savefig("mj_ctrl/plots/approach/joint_torques.png", dpi=150)
+    print("[PLOT] Joint torques saved to mj_ctrl/plots/approach/joint_torques.png")
 
 
 def main() -> None:
@@ -347,7 +353,7 @@ def main() -> None:
         print("  2. Emergency stop is accessible")
         print("  3. You understand the trajectory")
         print("="*60)
-        # input("Press Enter to continue...")
+        input("Press Enter to continue...")
 
         # ============================================================
         # 3. Create Controllers
@@ -370,17 +376,20 @@ def main() -> None:
 
         # Generate target orientation
         # q = (w, x, y, z)
-        target_quat = np.array([0., 1., 0.128, 0.])
-        # quat_slope = np.zeros(4)
-        # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
-        # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
-        rot_slope = Rotation.from_euler('xyz', common_config.euler)
-        rot_target = Rotation.from_quat(np.roll(target_quat, -1))
-        target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
+        # target_quat = np.array([0., 1., 0.128, 0.])
+        # # quat_slope = np.zeros(4)
+        # # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
+        # # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
+        # rot_slope = Rotation.from_euler('xyz', common_config.euler)
+        # rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+        # target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
 
         # Start torque control
         print("\nStarting torque control...")
         active_control = robot.start_torque_control()
+        robot_state, duration = active_control.readOnce()
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        target_rot = O_T_EE[:3, :3]
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
@@ -394,12 +403,12 @@ def main() -> None:
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(sim_time, target_pos, target_quat, q0, pino_model, pino_data)
+        approach_controller.starting(sim_time, target_pos, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
-        print(f"Target Quat: {target_quat}")
+        print(f"Target Rot: {target_rot}")
 
         # Warm up pinocchio computations before entering real-time loop
         # to trigger any lazy initialization (BLAS, LAPACK, internal caches)
@@ -425,10 +434,10 @@ def main() -> None:
             while True:
                 # Read robot state
                 robot_state, duration = active_control.readOnce()
-                try:
-                    logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                except (AttributeError, TypeError):
-                    print("  Last commanded torques from controller: <not available>")
+                # try:
+                #     logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
+                # except (AttributeError, TypeError):
+                #     print("  Last commanded torques from controller: <not available>")
 
                 # ============================================================
                 # State Machine: Switch Controllers
@@ -445,8 +454,6 @@ def main() -> None:
 
                         control_phase = ControlPhase.STOPPED
                 else:  # STOPPED
-                    tau = pino.computeGeneralizedGravity(pino_model, pino_data, np.array(robot_state.q))
-
                     # Signal motion finished and exit
                     torque_cmd = Torques(tau.tolist())
                     torque_cmd.motion_finished = True
@@ -456,7 +463,7 @@ def main() -> None:
                 # ============================================================
                 # Apply Control and Step Simulation
                 # ============================================================
-                logging.info("tau: %s", np.round(tau, 4))
+                # logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
 
