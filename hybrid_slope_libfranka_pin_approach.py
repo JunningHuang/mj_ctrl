@@ -278,8 +278,10 @@ def plot_joint_torques(
     """Plot joint torques from both controllers for each joint."""
     import matplotlib.pyplot as plt
 
+    plot_dir = "mj_ctrl/plots/approach"
+
     # Ensure plots directory exists
-    os.makedirs("mj_ctrl/plots/approach", exist_ok=True)
+    os.makedirs(plot_dir, exist_ok=True)
 
     # Combine torques from both controllers
     approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
@@ -305,8 +307,44 @@ def plot_joint_torques(
 
     axes[-1].set_xlabel('Time (s)')
     plt.tight_layout()
-    fig.savefig("mj_ctrl/plots/approach/joint_torques.png", dpi=150)
-    print("[PLOT] Joint torques saved to mj_ctrl/plots/approach/joint_torques.png")
+    fig.savefig(f"{plot_dir}/joint_torques.png", dpi=150)
+    print(f"[PLOT] Joint torques saved to {plot_dir}/joint_torques.png")
+
+
+def plot_ee_positions(
+        approach_controller: CartesianSpacePDController,
+        dt: float,
+) -> None:
+    """Plot ee_positions and target_positions for x, y, z axes."""
+    import matplotlib.pyplot as plt
+
+    plot_dir = "mj_ctrl/plots/approach"
+    os.makedirs(plot_dir, exist_ok=True)
+
+    ee_pos = np.array(approach_controller.ee_positions) if approach_controller.ee_positions else np.empty((0, 3))
+    tgt_pos = np.array(approach_controller.target_positions) if approach_controller.target_positions else np.empty((0, 3))
+
+    if ee_pos.size == 0:
+        print("[PLOT] No EE position data to plot")
+        return
+
+    time_steps = np.arange(len(ee_pos)) * dt
+    labels = ['X', 'Y', 'Z']
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle('End-Effector Position vs Target Position', fontsize=14)
+
+    for i in range(3):
+        axes[i].plot(time_steps, ee_pos[:, i], 'b-', linewidth=1.5, label='EE position')
+        axes[i].plot(time_steps, tgt_pos[:, i], 'r--', linewidth=1.5, label='Target position')
+        axes[i].set_ylabel(f'{labels[i]} (m)')
+        axes[i].grid(True, alpha=0.3)
+        axes[i].legend(loc='upper right')
+
+    axes[-1].set_xlabel('Time (s)')
+    plt.tight_layout()
+    fig.savefig(f"{plot_dir}/ee_positions.png", dpi=150)
+    print(f"[PLOT] EE positions saved to {plot_dir}/ee_positions.png")
 
 
 def main() -> None:
@@ -494,6 +532,7 @@ def main() -> None:
             #     circle_joint_torques=circle_controller.joint_torques
             #     )
             plot_joint_torques(approach_controller, common_config.dt, transition_time)
+            plot_ee_positions(approach_controller, common_config.dt)
         except KeyboardInterrupt:
             gc.enable()
             print("\nControl interrupted by user")
@@ -512,6 +551,7 @@ def main() -> None:
             #     circle_joint_torques=circle_controller.joint_torques
             #     )
             plot_joint_torques(approach_controller, common_config.dt, transition_time)
+            plot_ee_positions(approach_controller, common_config.dt)
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
@@ -522,6 +562,7 @@ def main() -> None:
         if robot is not None:
             robot.stop()
         plot_joint_torques(approach_controller, common_config.dt, transition_time)
+        plot_ee_positions(approach_controller, common_config.dt)
         return -1
     finally:
         robot.stop()
