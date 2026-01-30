@@ -35,8 +35,8 @@ def main() -> int:
         type=float,
         nargs=7,
         # default=[0.0, -0.785398163397, 0.0, -2.35619449019, 0.0, 1.57079632679, 0.785398163397],
-        # default=[0.0002, 0.1411, -0.0928, -2.0621, -0.0024, 2.2852, 0.7764],
-        default=[0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441],
+        default=[0.0002, 0.1411, -0.0928, -2.0621, -0.0024, 2.2852, 0.7764],
+        # default=[0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441],
         help="7 joint targets in rad (default: Franka start pose)",
     )
     parser.add_argument("--plot", action="store_true", help="Plot joint trajectories after motion")

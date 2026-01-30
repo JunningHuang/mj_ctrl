@@ -85,9 +85,9 @@ class CartesianSpacePDControlConfig:
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([50.0, 50.0, 50.0]) * 0.5
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([25.0, 25.0, 25.0]) * 0.5
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
         if  self.Kd is None:
@@ -139,7 +139,7 @@ class CartesianSpacePDController:
 
         self.start_time = 0.0
 
-    def starting(self, current_time: float, target_pos: np.ndarray, target_rot: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
+    def starting(self, current_time: float, start_pos: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
         """
         Reset controller state.
 
@@ -165,8 +165,9 @@ class CartesianSpacePDController:
         self.tau[:] = 0.0
 
         self.start_time = current_time
-        self.start_pos = np.array([0.4871, -0.0021, 0.044])
+        self.start_pos = start_pos
 
+        print(f"[APPROACH START] Start position: {self.start_pos}")
         print(f"[APPROACH START] Target position: {self.target_pos}")
         print(f"[APPROACH START] Target quaternion: {self.target_rot}")
 
@@ -428,6 +429,7 @@ def main() -> None:
         robot_state, duration = active_control.readOnce()
         O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
         target_rot = O_T_EE[:3, :3]
+        start_pos = O_T_EE[:3, 3]
         # this function doesn't work, get rid of it
         # model = robot.load_model()
 
@@ -441,12 +443,11 @@ def main() -> None:
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(sim_time, target_pos, target_rot, q0, pino_model, pino_data)
+        approach_controller.starting(sim_time, start_pos, target_pos, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
-        print(f"Target Rot: {target_rot}")
 
         # Warm up pinocchio computations before entering real-time loop
         # to trigger any lazy initialization (BLAS, LAPACK, internal caches)
