@@ -21,6 +21,7 @@ from pylibfranka import Robot, Torques
 from scipy.spatial.transform import Rotation
 import logging
 import time
+from utils_plot import plot_ee_positions, plot_joint_torques
 
 logging.basicConfig(
     filename="mj_ctrl/robot_approach.log",
@@ -75,7 +76,7 @@ class CartesianSpacePDControlConfig:
     where twist is computed from pose error with gain Kpos.
     """
     Kpos: float = 0.1  # Position error gain
-    Kori: float = 0.1
+    Kori: float = 0.1  # Orientation error gain
     Kp: np.ndarray = None  # Task space proportional gain
     Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
@@ -90,7 +91,7 @@ class CartesianSpacePDControlConfig:
             self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
         if self.Kp is None:
             self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
-        if  self.Kd is None:
+        if self.Kd is None:
             damping_ratio = 1.0
             damping_pos = damping_ratio * 2 * np.sqrt(self.impedance_pos)
             damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
@@ -107,19 +108,29 @@ class CartesianSpacePDController:
     Controller for moving end-effector to desired position.
 
     Uses task-space impedance control with nullspace joint control.
-    Transitions to circle drawing when target is reached.
+    Designed to move the end-effector to the desired surface position.
     """
 
-    def __init__(self, config: CartesianSpacePDControlConfig, common_config: ControllerConfig):
+    def __init__(
+        self,
+        config: CartesianSpacePDControlConfig,
+        common_config: ControllerConfig,
+        n_joints: int = 7,
+        ee_frame_name: str = "attachment"
+    ):
         """
         Initialize approach controller.
 
         Args:
             config: Approach-specific configuration
             common_config: Shared configuration parameters
+            n_joints: Number of robot joints
+            ee_frame_name: Name of the end-effector frame in Pinocchio model
         """
         self.config = config
         self.common_config = common_config
+        self.n_joints = n_joints
+        self.ee_frame_name = ee_frame_name
 
         self.pino_model: Optional[pino.Model] = None
         self.pino_data: Optional[pino.Data] = None
@@ -130,22 +141,33 @@ class CartesianSpacePDController:
         self.q0: Optional[np.ndarray] = None  # Home configuration
 
         # Control output
-        self.tau: np.ndarray = np.zeros(7)
+        self.tau: np.ndarray = np.zeros(n_joints)
 
         # Data logging
         self.ee_positions: list = []
         self.target_positions: list = []
         self.joint_torques: list = []
 
-        self.start_time = 0.0
+        self.time_elapsed = None
 
-    def starting(self, current_time: float, start_pos: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray, q0: np.ndarray, pino_model: pino.Model, pino_data: pino.Data) -> None:
+    def starting(
+        self,
+        start_pos: np.ndarray,
+        target_pos: np.ndarray,
+        target_rot: np.ndarray,
+        q0: np.ndarray,
+        pino_model: pino.Model,
+        pino_data: pino.Data
+    ) -> None:
         """
         Reset controller state.
 
         Args:
             target_pos: Target end-effector position
             target_quat: Target end-effector quaternion
+            q0: Home joint configuration
+            pino_model: Pinocchio model
+            pino_data: Pinocchio data
         """
         self.pino_model = pino_model
         self.pino_data = pino_data
@@ -154,7 +176,7 @@ class CartesianSpacePDController:
         self.q0 = q0.copy()
 
         # Cache frame ID to avoid string lookup every iteration
-        self.pino_frame_id = self.pino_model.getFrameId("attachment")
+        self.pino_frame_id = self.pino_model.getFrameId(self.ee_frame_name)
 
         # Clear logging
         self.ee_positions = []
@@ -164,21 +186,21 @@ class CartesianSpacePDController:
         # Zero control
         self.tau[:] = 0.0
 
-        self.start_time = current_time
+        self.time_elapsed = 0.0
         self.start_pos = start_pos
 
         print(f"[APPROACH START] Start position: {self.start_pos}")
         print(f"[APPROACH START] Target position: {self.target_pos}")
         print(f"[APPROACH START] Target quaternion: {self.target_rot}")
 
-    def update(self, current_time: float, robot_state) -> np.ndarray:
+    def update(self, duration: float, robot_state) -> np.ndarray:
         """
         Compute control torques for approaching target.
 
         Returns:
             Control torques
         """
-        elapsed = current_time - self.start_time
+        self.time_elapsed += duration
         
         # Get current state
         q = np.array(robot_state.q)
@@ -192,14 +214,14 @@ class CartesianSpacePDController:
         current_mat = O_T_EE[:3, :3]
 
 
-        tmp_target_pos = generate_line_trajectory_delta(elapsed, self.start_pos, self.target_pos, 5.0) 
+        tmp_target_pos = generate_line_trajectory_delta(self.time_elapsed, self.start_pos, self.target_pos, 5.0) 
         twist = compute_ee_pose_error(
             tmp_target_pos,
             current_pos,
             self.target_rot,
             current_mat)
         
-        logging.info("twist: %s", np.round(twist, 4))
+        # logging.info("twist: %s", np.round(twist, 4))
 
 
         # ============================================================
@@ -222,7 +244,7 @@ class CartesianSpacePDController:
         # 4. Compute Task-Space Control
         # ============================================================
         self.tau[:] = jac.T @ Mx @ (
-                self.config.Kp * twist - self.config.Kd * (jac @ dq)
+            self.config.Kp * twist - self.config.Kd * (jac @ dq)
         )
 
         # ============================================================
@@ -236,7 +258,7 @@ class CartesianSpacePDController:
             self.config.Kp_null,
             self.config.Kd_null
         )
-        self.tau += (np.eye(7)- jac.T @ Jbar.T) @ ddq
+        self.tau += (np.eye(self.n_joints) - jac.T @ Jbar.T) @ ddq
         # print(f"null control: {np.round(self.tau, 4)}")
 
         # ============================================================
@@ -244,9 +266,7 @@ class CartesianSpacePDController:
         # ============================================================
         # Use Pinocchio to compute gravity
         if self.common_config.gravity_compensation:
-            g_ctrl = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
-            self.tau += g_ctrl
-            # print(f"g control: {np.round(g_ctrl, 4)}")
+            self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
 
         # ============================================================
         # 7. Log Data
@@ -271,90 +291,19 @@ class CartesianSpacePDController:
         return distance < self.common_config.position_tolerance
 
 
-def plot_joint_torques(
-        approach_controller: CartesianSpacePDController,
-        dt: float,
-        transition_time: float
-) -> None:
-    """Plot joint torques from both controllers for each joint."""
-    import matplotlib.pyplot as plt
-
-    plot_dir = "mj_ctrl/plots/approach"
-
-    # Ensure plots directory exists
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Combine torques from both controllers
-    approach_torques = np.array(approach_controller.joint_torques) if approach_controller.joint_torques else np.empty((0, 7))
-
-    if approach_torques.size == 0:
-        print("[PLOT] No torque data to plot")
-        return
-
-    time_steps = np.arange(len(approach_torques)) * dt
-
-    # Create figure with 7 subplots (one per joint)
-    fig, axes = plt.subplots(7, 1, figsize=(12, 14), sharex=True)
-    fig.suptitle('Joint Torques Over Time', fontsize=14)
-
-    for i in range(7):
-        axes[i].plot(time_steps, approach_torques[:, i], 'b-', linewidth=1.5)
-        if transition_time > 0:
-            axes[i].axvline(transition_time, color='g', linestyle='--', alpha=0.7, label='Transition')
-        axes[i].set_ylabel(f'Joint {i+1} (Nm)')
-        axes[i].grid(True, alpha=0.3)
-        if i == 0 and transition_time > 0:
-            axes[i].legend(loc='upper right')
-
-    axes[-1].set_xlabel('Time (s)')
-    plt.tight_layout()
-    fig.savefig(f"{plot_dir}/joint_torques.png", dpi=150)
-    print(f"[PLOT] Joint torques saved to {plot_dir}/joint_torques.png")
 
 
-def plot_ee_positions(
-        approach_controller: CartesianSpacePDController,
-        dt: float,
-) -> None:
-    """Plot ee_positions and target_positions for x, y, z axes."""
-    import matplotlib.pyplot as plt
 
-    plot_dir = "mj_ctrl/plots/approach"
-    os.makedirs(plot_dir, exist_ok=True)
 
-    ee_pos = np.array(approach_controller.ee_positions) if approach_controller.ee_positions else np.empty((0, 3))
-    tgt_pos = np.array(approach_controller.target_positions) if approach_controller.target_positions else np.empty((0, 3))
-
-    if ee_pos.size == 0:
-        print("[PLOT] No EE position data to plot")
-        return
-
-    time_steps = np.arange(len(ee_pos)) * dt
-    labels = ['X', 'Y', 'Z']
-
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-    fig.suptitle('End-Effector Position vs Target Position', fontsize=14)
-
-    for i in range(3):
-        axes[i].plot(time_steps, ee_pos[:, i], 'b-', linewidth=1.5, label='EE position')
-        axes[i].plot(time_steps, tgt_pos[:, i], 'r--', linewidth=1.5, label='Target position')
-        axes[i].set_ylabel(f'{labels[i]} (m)')
-        axes[i].grid(True, alpha=0.3)
-        axes[i].legend(loc='upper right')
-
-    axes[-1].set_xlabel('Time (s)')
-    plt.tight_layout()
-    fig.savefig(f"{plot_dir}/ee_positions.png", dpi=150)
-    print(f"[PLOT] EE positions saved to {plot_dir}/ee_positions.png")
 
 
 def main() -> None:
-    """Main function with two-phase control."""
-    
+    """Main function for approach control."""
     # Parse arguments
-    parser = argparse.ArgumentParser(description="Hybrid force/impedance control for Franka Panda")
+    parser = argparse.ArgumentParser(
+        description="Cartesian Space PD Control - Move end-effector to surface"
+    )
     parser.add_argument("--ip", type=str, default="localhost", help="Robot IP address")
-    parser.add_argument("--approach-only", action="store_true", help="Only run approach phase (no circle drawing)")
     args = parser.parse_args()
 
     # ============================================================
@@ -403,8 +352,7 @@ def main() -> None:
         # ============================================================
         # 4. Setup Initial Targets
         # ============================================================
-
-        # Generate target position
+        # Generate target position on the surface
         R_slope = euler_to_rot_matrix(common_config.euler)
         target_pos = generate_start_position(
             common_config.circle_radius,
@@ -434,16 +382,10 @@ def main() -> None:
         # model = robot.load_model()
 
         # ============================================================
-        # 6. Run Control Loop
-        # ============================================================
-        sim_time = 0.0
-        transition_time = 0.0
-
-        # ============================================================
         # 5. Start Approach Phase
         # ============================================================
         control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(sim_time, start_pos, target_pos, target_rot, q0, pino_model, pino_data)
+        approach_controller.starting(start_pos, target_pos, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
@@ -483,11 +425,11 @@ def main() -> None:
                 # ============================================================
                 if control_phase == ControlPhase.APPROACHING:
                     # Use approach controller
-                    tau = approach_controller.update(sim_time, robot_state)
+                    tau = approach_controller.update(duration.to_sec(), robot_state)
                     # Check if target reached
                     if approach_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
-                        print(f"TARGET REACHED at t={sim_time:.2f}s!")
+                        print(f"TARGET REACHED at t={approach_controller.time_elapsed:.2f}s!")
                         print("PHASE 2: CIRCLE DRAWING")
                         print("=" * 60 + "\n")
 
@@ -498,23 +440,9 @@ def main() -> None:
                     torque_cmd.motion_finished = True
                     active_control.writeOnce(torque_cmd)
                     break
-
-                # ============================================================
-                # Apply Control and Step Simulation
-                # ============================================================
                 # logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 active_control.writeOnce(torque_cmd)
-
-                # Update time
-                sim_time += duration.to_sec()
-
-                # # # Maintain control rate (1kHz)
-                # elapsed = time.time() - step_start
-                # if elapsed < common_config.dt:
-                #     time.sleep(common_config.dt - elapsed)
-
-                # sim_time += common_config.dt
             # Re-enable garbage collection after control loop
             gc.enable()
             gc.collect()
@@ -522,17 +450,7 @@ def main() -> None:
             # 7. Plot Results
             # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
-            # plot_results(approach_controller, circle_controller, common_config.dt, transition_time)
-            # np.savez(
-            #     "force_details.npz",
-            #     control_force_compensation_arr=circle_controller.control_force_compensation_arr,
-            #     contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
-            #     velocity_term_arr=circle_controller.velocity_term_arr,
-            #     F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
-            #     approach_joint_torques=approach_controller.joint_torques,
-            #     circle_joint_torques=circle_controller.joint_torques
-            #     )
-            plot_joint_torques(approach_controller, common_config.dt, transition_time)
+            plot_joint_torques(approach_controller, common_config.dt)
             plot_ee_positions(approach_controller, common_config.dt)
         except KeyboardInterrupt:
             gc.enable()
@@ -541,28 +459,18 @@ def main() -> None:
             torque_cmd = Torques([0.0] * 7)
             torque_cmd.motion_finished = True
             active_control.writeOnce(torque_cmd)
-            print("\n[MAIN] Save force detail data into npz file...")
-            # np.savez(
-            #     "force_details.npz",
-            #     control_force_compensation_arr=circle_controller.control_force_compensation_arr,
-            #     contact_force_compensation_arr=circle_controller.contact_force_compensation_arr,
-            #     velocity_term_arr=circle_controller.velocity_term_arr,
-            #     F_ctrl_constraint_arr=circle_controller.F_ctrl_constraint_arr,
-            #     approach_joint_torques=approach_controller.joint_torques,
-            #     circle_joint_torques=circle_controller.joint_torques
-            #     )
-            plot_joint_torques(approach_controller, common_config.dt, transition_time)
+            plot_joint_torques(approach_controller, common_config.dt)
             plot_ee_positions(approach_controller, common_config.dt)
 
         print("\n[MAIN] Control finished")
-        print(f"Total time: {sim_time:.2f}s")
+        print(f"Total time: {approach_controller.time_elapsed:.2f}s")
     except Exception as e:
         print(f"\nError occurred: {e}")
         import traceback
         traceback.print_exc()
         if robot is not None:
             robot.stop()
-        plot_joint_torques(approach_controller, common_config.dt, transition_time)
+        plot_joint_torques(approach_controller, common_config.dt)
         plot_ee_positions(approach_controller, common_config.dt)
         return -1
     finally:

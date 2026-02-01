@@ -16,78 +16,22 @@ from src import (
     ControllerConfig,
     CartesianSpacePDController,
     CartesianSpacePDControlConfig,
+    ControlPhase,
     get_robot_config
 )
+import logging
+from utils_plot import plot_ee_positions, plot_joint_torques
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 from mujoco_robot_interface import MujocoRobotInterface, Torques
 
-
-def plot_approach_results(
-    controller: CartesianSpacePDController,
-    torques_log: list,
-    dt: float,
-    robot_name: str,
-    n_joints: int = 7
-) -> None:
-    """Plot position tracking and joint torques from approach controller."""
-
-    if len(controller.ee_positions) == 0:
-        print("[PLOT] No data to plot")
-        return
-
-    ee_positions = np.array(controller.ee_positions)
-    target_positions = np.array(controller.target_positions)
-    time_steps = np.arange(len(ee_positions)) * dt
-
-    # ============================================================
-    # Plot 1: Position Tracking
-    # ============================================================
-    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
-    axes_labels = ['X', 'Y', 'Z']
-
-    for i in range(3):
-        axes[i].plot(time_steps, ee_positions[:, i], 'b-', linewidth=2, label='End-Effector')
-        axes[i].plot(time_steps, target_positions[:, i], 'r--', linewidth=2, label='Target')
-        axes[i].set_ylabel(f'{axes_labels[i]} Position (m)')
-        axes[i].legend()
-        axes[i].grid(True, alpha=0.3)
-        axes[i].set_title(f'{axes_labels[i]} Position Tracking')
-
-    axes[2].set_xlabel('Time (s)')
-    fig.suptitle(f'{robot_name.upper()}: Approach Control - Position Tracking')
-    plt.tight_layout()
-    fig.savefig(f"plots/approach_position_tracking_{robot_name}.png")
-
-    # ============================================================
-    # Plot 2: Joint Torques
-    # ============================================================
-    if len(torques_log) > 0:
-        torques = np.array(torques_log)
-        time_steps_tau = np.arange(len(torques)) * dt
-
-        fig2, axes2 = plt.subplots(n_joints, 1, figsize=(12, 2 * n_joints), sharex=True)
-
-        colors = plt.cm.tab10(np.linspace(0, 1, n_joints))
-
-        for i in range(n_joints):
-            axes2[i].plot(time_steps_tau, torques[:, i], color=colors[i], linewidth=1.5)
-            axes2[i].set_ylabel(f'Joint {i+1} (Nm)')
-            axes2[i].grid(True, alpha=0.3)
-            axes2[i].axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.5)
-
-        axes2[-1].set_xlabel('Time (s)')
-        fig2.suptitle(f'{robot_name.upper()}: Approach Control - Joint Torques')
-        plt.tight_layout()
-        fig2.savefig(f"plots/approach_joint_torques_{robot_name}.png")
-
-    plt.show()
-    print(f"[PLOT] Results saved to plots/approach_position_tracking_{robot_name}.png")
-    print(f"[PLOT] Results saved to plots/approach_joint_torques_{robot_name}.png")
-
+# logging.basicConfig(
+#     filename="robot_approach_sim.log",
+#     level=logging.INFO,
+#     filemode="w"
+# )
 
 def main() -> None:
     """Main function for approach control."""
-
     # Parse arguments
     parser = argparse.ArgumentParser(
         description="Cartesian Space PD Control - Move end-effector to surface"
@@ -102,8 +46,8 @@ def main() -> None:
     parser.add_argument(
         "--duration",
         type=float,
-        default=10.0,
-        help="Maximum duration in seconds (default: 10.0)"
+        default=20.0,
+        help="Maximum duration in seconds (default: 20.0)"
     )
     args = parser.parse_args()
 
@@ -119,11 +63,14 @@ def main() -> None:
     # 2. Create Configurations
     # ============================================================
     common_config = ControllerConfig()
+    common_config.size_z = 0.01
+    common_config.gravity_compensation = True
     approach_config = CartesianSpacePDControlConfig()
-    q0 = robot_cfg.q0.copy()
+    # q0 = robot_cfg.q0.copy()
+    q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
 
     # ============================================================
-    # 3. Load Pinocchio Model
+    # 2. Load Model
     # ============================================================
     pino_model = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
     pino_data = pino_model.createData()
@@ -151,7 +98,7 @@ def main() -> None:
         )
 
         # ============================================================
-        # 5. Setup Initial Targets
+        # 4. Setup Initial Targets
         # ============================================================
         # Generate target position on the surface
         R_slope = euler_to_rot_matrix(common_config.euler)
@@ -164,10 +111,10 @@ def main() -> None:
 
         # Generate target orientation (end-effector pointing down)
         # q = (w, x, y, z)
-        target_quat = robot_cfg.target_quat.copy()
-        rot_slope = Rotation.from_euler('xyz', common_config.euler)
-        rot_target = Rotation.from_quat(np.roll(target_quat, -1))
-        target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
+        # target_quat = robot_cfg.target_quat.copy()
+        # rot_slope = Rotation.from_euler('xyz', common_config.euler)
+        # rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+        # target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
 
         # ============================================================
         # 6. Create MuJoCo Interface
@@ -178,15 +125,21 @@ def main() -> None:
             joint_names=robot_cfg.joint_names,
             xml_path=robot_cfg.mujoco_scene_xml_path
         )
+        mujoco_interface.reset_to_keyframe()
+        mujoco.mj_step(mujoco_interface.model, mujoco_interface.data)
+        robot_state, duration = mujoco_interface.readOnce()
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        target_rot = O_T_EE[:3, :3]
+        start_pos = O_T_EE[:3, 3]
 
         # ============================================================
-        # 7. Initialize Controller
+        # 7. Start Approach Phase
         # ============================================================
-        approach_controller.starting(target_pos, target_quat, q0, pino_model, pino_data)
+        control_phase = ControlPhase.APPROACHING
+        approach_controller.starting(start_pos, target_pos, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
-        print("APPROACHING TARGET POSITION")
-        print(f"Target: {target_pos}")
+        print("PHASE 1: APPROACHING TARGET POSITION")
         print("=" * 60)
 
         # ============================================================
@@ -196,47 +149,48 @@ def main() -> None:
             mujoco_interface.model, mujoco_interface.data,
             show_left_ui=False, show_right_ui=False
         ) as viewer:
-            # Reset the simulation
             mujoco_interface.reset_to_keyframe()
             mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
 
-            sim_time = 0.0
             target_reached = False
-            torques_log = []  # Log joint torques
 
-            while viewer.is_running() and sim_time < args.duration:
+            while viewer.is_running() and approach_controller.time_elapsed < args.duration:
                 step_start = time.time()
 
                 # Read robot state
                 robot_state, duration = mujoco_interface.readOnce()
 
-                # Compute control torques
-                tau = approach_controller.update(robot_state)
+                if control_phase == ControlPhase.APPROACHING:
+                    # Use approach controller
+                    tau = approach_controller.update(duration, robot_state)
+                    # Check if target reached
+                    if approach_controller.is_target_reached(robot_state):
+                        print("\n" + "=" * 60)
+                        print(f"TARGET REACHED at t={approach_controller.time_elapsed:.2f}s!")
+                        print("PHASE 2: CIRCLE DRAWING")
+                        print("=" * 60 + "\n")
 
-                # Log torques
-                torques_log.append(tau.copy())
+                        control_phase = ControlPhase.STOPPED
 
-                # Check if target reached
-                if approach_controller.is_target_reached(robot_state) and not target_reached:
-                    print("\n" + "=" * 60)
-                    print(f"TARGET REACHED at t={sim_time:.2f}s!")
-                    print("=" * 60)
-                    target_reached = True
-                    # Continue for a bit to show the reached state
-
-                # Apply control
+                else:  # STOPPED
+                    # Signal motion finished and exit
+                    torque_cmd = Torques(tau.tolist())
+                    torque_cmd.motion_finished = True
+                    mujoco_interface.writeOnce(torque_cmd)
+                    break
+                # logging.info("tau: %s", np.round(tau, 4))
                 torque_cmd = Torques(tau.tolist())
                 mujoco_interface.writeOnce(torque_cmd)
-
                 # Update viewer
                 viewer.sync()
-
                 # Maintain real-time rate
                 time_until_next_step = common_config.dt - (time.time() - step_start)
                 if time_until_next_step > 0:
                     time.sleep(time_until_next_step)
 
-                sim_time += common_config.dt
+            print("\n[MAIN] Simulation complete. Generating plots...")
+            plot_joint_torques(approach_controller, common_config.dt, plot_dir="plots/sim/approach")
+            plot_ee_positions(approach_controller, common_config.dt, plot_dir="plots/sim/approach")
 
             # Signal motion finished
             robot_state, _ = mujoco_interface.readOnce()
@@ -245,20 +199,8 @@ def main() -> None:
             torque_cmd.motion_finished = True
             mujoco_interface.writeOnce(torque_cmd)
 
-        # ============================================================
-        # 9. Plot Results
-        # ============================================================
-        print("\n[MAIN] Simulation complete. Generating plots...")
-        plot_approach_results(
-            approach_controller,
-            torques_log,
-            common_config.dt,
-            robot_cfg.name,
-            n_joints=robot_cfg.n_joints
-        )
-
         print("\n[MAIN] Approach control finished")
-        print(f"Total time: {sim_time:.2f}s")
+        print(f"Total time: {approach_controller.time_elapsed:.2f}s")
         print(f"Target reached: {target_reached}")
 
     except Exception as e:
