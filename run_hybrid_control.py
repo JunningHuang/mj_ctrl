@@ -22,6 +22,8 @@ from src import (
     HybridControllerConfig,
     get_robot_config
 )
+# import logging
+from utils_plot import plot_ee_positions, plot_joint_torques
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 from mujoco_robot_interface import MujocoRobotInterface, Torques
 
@@ -154,11 +156,6 @@ def main() -> None:
         help="Robot type: fr3, kuka, or panda (default: fr3)"
     )
     parser.add_argument(
-        "--approach-only",
-        action="store_true",
-        help="Only run approach phase (no hybrid control)"
-    )
-    parser.add_argument(
         "--circle-duration",
         type=float,
         default=10.0,
@@ -178,9 +175,11 @@ def main() -> None:
     # 2. Create Configurations
     # ============================================================
     common_config = ControllerConfig(circle_duration=args.circle_duration)
-    approach_config = CartesianSpacePDControlConfig()
+    common_config.size_z = 0.01
+    common_config.gravity_compensation = True
     hybrid_config = HybridControllerConfig()
-    q0 = robot_cfg.q0.copy()
+    q0 = np.array([-3.9000e-03, 7.0400e-01, -9.0000e-04, -2.1658e+00, -2.9000e-03, 2.7854e+00, -7.8220e-01])
+    
 
     # ============================================================
     # 3. Load Pinocchio Model
@@ -206,12 +205,6 @@ def main() -> None:
         # ============================================================
         # 4. Create Controllers
         # ============================================================
-        approach_controller = CartesianSpacePDController(
-            approach_config,
-            common_config,
-            n_joints=robot_cfg.n_joints,
-            ee_frame_name=robot_cfg.ee_frame_name
-        )
         hybrid_controller = HybridController(
             hybrid_config,
             common_config,
@@ -231,11 +224,11 @@ def main() -> None:
             R_slope
         )
 
-        # Generate target orientation
-        target_quat = robot_cfg.target_quat.copy()
-        rot_slope = Rotation.from_euler('xyz', common_config.euler)
-        rot_target = Rotation.from_quat(np.roll(target_quat, -1))
-        target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
+        # # Generate target orientation
+        # target_quat = robot_cfg.target_quat.copy()
+        # rot_slope = Rotation.from_euler('xyz', common_config.euler)
+        # rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+        # target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
 
         # ============================================================
         # 6. Create MuJoCo Interface
@@ -247,16 +240,7 @@ def main() -> None:
             xml_path=robot_cfg.mujoco_scene_xml_path
         )
 
-        # ============================================================
-        # 7. Start Approach Phase
-        # ============================================================
-        control_phase = ControlPhase.APPROACHING
-        approach_controller.starting(target_pos, target_quat, q0, pino_model, pino_data)
-
-        print("\n" + "=" * 60)
-        print("PHASE 1: APPROACHING TARGET POSITION")
-        print(f"Target: {target_pos}")
-        print("=" * 60)
+        control_phase = ControlPhase.CIRCLE_DRAWING
 
         # ============================================================
         # 8. Run Control Loop
@@ -266,11 +250,21 @@ def main() -> None:
             show_left_ui=False, show_right_ui=False
         ) as viewer:
             # Reset the simulation
-            mujoco_interface.reset_to_keyframe()
+            # mujoco_interface.reset_to_keyframe()
+            mujoco_interface.data.qpos[:len(q0)] = q0
+            mujoco_interface.data.qvel[:] = 0
+            mujoco.mj_forward(mujoco_interface.model, mujoco_interface.data)
+            # mujoco.mj_step(mujoco_interface.model, mujoco_interface.data)
+            robot_state, duration = mujoco_interface.readOnce()
+            O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+            target_rot = O_T_EE[:3, :3]
+            start_pos = O_T_EE[:3, 3]
             mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
 
             sim_time = 0.0
             transition_time = 0.0
+
+            hybrid_controller.starting(sim_time, start_pos, target_rot, q0, pino_model, pino_data)
 
             while viewer.is_running():
                 step_start = time.time()
@@ -281,29 +275,7 @@ def main() -> None:
                 # ============================================================
                 # State Machine: Switch Controllers
                 # ============================================================
-                if control_phase == ControlPhase.APPROACHING:
-                    # Use approach controller
-                    tau = approach_controller.update(robot_state)
-
-                    # Check if target reached
-                    if approach_controller.is_target_reached(robot_state):
-                        print("\n" + "=" * 60)
-                        print(f"TARGET REACHED at t={sim_time:.2f}s!")
-
-                        if args.approach_only:
-                            print("Approach-only mode: stopping here.")
-                            print("=" * 60)
-                            control_phase = ControlPhase.STOPPED
-                        else:
-                            print("PHASE 2: HYBRID FORCE-MOTION CONTROL")
-                            print("=" * 60)
-                            control_phase = ControlPhase.CIRCLE_DRAWING
-                            transition_time = sim_time
-                            hybrid_controller.starting(
-                                sim_time, target_pos, target_quat, q0, pino_model, pino_data
-                            )
-
-                elif control_phase == ControlPhase.CIRCLE_DRAWING:
+                if control_phase == ControlPhase.CIRCLE_DRAWING:
                     # Use hybrid controller
                     tau = hybrid_controller.update(sim_time, robot_state)
 
@@ -342,13 +314,10 @@ def main() -> None:
         # ============================================================
         # 9. Plot Results
         # ============================================================
-        print("\n[MAIN] Simulation complete. Generating plots...")
-        plot_hybrid_results(
-            approach_controller, hybrid_controller,
-            common_config.dt, transition_time, robot_cfg.name
-        )
-
-        print("\n[MAIN] Hybrid control finished")
+            print("\n[MAIN] Simulation complete. Generating plots...")
+            plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
+            plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
+            print("\n[MAIN] Hybrid control finished")
         print(f"Total time: {sim_time:.2f}s")
 
     except Exception as e:

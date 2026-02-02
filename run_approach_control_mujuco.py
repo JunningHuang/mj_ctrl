@@ -152,7 +152,6 @@ def main() -> None:
             mujoco_interface.reset_to_keyframe()
             mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
 
-            target_reached = False
 
             while viewer.is_running() and approach_controller.time_elapsed < args.duration:
                 step_start = time.time()
@@ -174,6 +173,7 @@ def main() -> None:
 
                 else:  # STOPPED
                     # Signal motion finished and exit
+                    print(np.round(robot_state.q, 4))
                     torque_cmd = Torques(tau.tolist())
                     torque_cmd.motion_finished = True
                     mujoco_interface.writeOnce(torque_cmd)
@@ -189,8 +189,8 @@ def main() -> None:
                     time.sleep(time_until_next_step)
 
             print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_joint_torques(approach_controller, common_config.dt, plot_dir="plots/sim/approach")
-            plot_ee_positions(approach_controller, common_config.dt, plot_dir="plots/sim/approach")
+            plot_joint_torques(approach_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/approach")
+            plot_ee_positions(approach_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/approach")
 
             # Signal motion finished
             robot_state, _ = mujoco_interface.readOnce()
@@ -201,7 +201,6 @@ def main() -> None:
 
         print("\n[MAIN] Approach control finished")
         print(f"Total time: {approach_controller.time_elapsed:.2f}s")
-        print(f"Target reached: {target_reached}")
 
     except Exception as e:
         print(f"\nError occurred: {e}")

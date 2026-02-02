@@ -166,7 +166,7 @@ class HybridController:
 
         # Trajectory state
         self.target_pos: Optional[np.ndarray] = None
-        self.target_quat: Optional[np.ndarray] = None
+        self.target_rot: Optional[np.ndarray] = None
         self.x_dot_desired: Optional[np.ndarray] = np.zeros(3)
         self.x_ddot_desired: Optional[np.ndarray] = np.zeros(3)
         self.q0: Optional[np.ndarray] = None
@@ -187,12 +187,13 @@ class HybridController:
         self.contact_force_compensation_arr: list = []
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
+        self.joint_torques: list = []
 
     def starting(
         self,
         current_time: float,
         target_pos: np.ndarray,
-        target_quat: np.ndarray,
+        target_rot: np.ndarray,
         q0: np.ndarray,
         pino_model: pino.Model,
         pino_data: pino.Data
@@ -203,7 +204,7 @@ class HybridController:
         Args:
             current_time: Current simulation time
             target_pos: Starting position for motion
-            target_quat: Target orientation
+            target_rot: Target orientation matrix
             q0: Home joint configuration
             pino_model: Pinocchio model
             pino_data: Pinocchio data
@@ -216,7 +217,7 @@ class HybridController:
         self.is_drawing = True
 
         self.target_pos = target_pos.copy()
-        self.target_quat = target_quat.copy()
+        self.target_rot = target_rot.copy()
 
         # Clear logging
         self.contact_forces = []
@@ -227,6 +228,7 @@ class HybridController:
         self.contact_force_compensation_arr = []
         self.velocity_term_arr = []
         self.F_ctrl_constraint_arr = []
+        self.joint_torques = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -320,7 +322,7 @@ class HybridController:
         twist = compute_ee_pose_error(
             self.target_pos,
             current_pos,
-            self.target_quat,
+            self.target_rot,
             current_mat.flatten()
         )
 
@@ -378,7 +380,10 @@ class HybridController:
         # ============================================================
         # 9. Log Data
         # ============================================================
-        self._log_data(current_force_local, current_pos)
+        # self._log_data(current_force_local, current_pos)
+        self.ee_positions.append(current_pos.copy())
+        self.target_positions.append(self.target_pos.copy())
+        self.joint_torques.append(self.tau.copy())
 
         return self.tau
 

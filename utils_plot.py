@@ -64,7 +64,6 @@ def plot_joint_torques(
         axes[i].plot(time_steps, approach_torques[:, i], 'b-', linewidth=1.5)
         axes[i].set_ylabel(f'Joint {i+1} (Nm)')
         axes[i].grid(True, alpha=0.3)
-        axes[i].legend(loc='upper right')
 
     axes[-1].set_xlabel('Time (s)')
     plt.tight_layout()
