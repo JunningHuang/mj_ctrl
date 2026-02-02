@@ -70,6 +70,38 @@ def generate_circle_trajectory(
         R_slope @ x_ddot_desired_local
     )
 
+def generate_line_trajectory_delta(elapsed_time: float,
+                             start_pos: np.ndarray,
+                             end_pos: np.ndarray,
+                             duration: float):
+    """
+    Generate desired position, velocity, and acceleration for minimum jerk trajectory.
+    Uses the formula: x(t) = x_0 + [10σ³ - 15σ⁴ + 6σ⁵](x_f - x_0), σ = t/T
+    Args:
+        elapsed_time: Elapsed time since start
+        start_pos: Starting position (3D)
+        end_pos: Ending position (3D)
+        duration: Total duration T
+    Returns:
+        Tuple of (position, velocity, acceleration)
+    """
+    # Clamp time to [0, T]
+    t = np.clip(elapsed_time, 0.0, duration)
+    sigma = t / duration
+
+    # Position: x(t) = x_0 + [10σ³ - 15σ⁴ + 6σ⁵](x_f - x_0)
+    s = 10 * sigma**3 - 15 * sigma**4 + 6 * sigma**5
+    x_desired = start_pos + s * (end_pos - start_pos)
+
+    # Velocity: dx/dt = [30σ² - 60σ³ + 30σ⁴] / T * (x_f - x_0)
+    ds_dt = (30 * sigma**2 - 60 * sigma**3 + 30 * sigma**4) / duration
+    x_dot_desired = ds_dt * (end_pos - start_pos)
+
+    # Acceleration: d²x/dt² = [60σ - 180σ² + 120σ³] / T² * (x_f - x_0)
+    d2s_dt2 = (60 * sigma - 180 * sigma**2 + 120 * sigma**3) / (duration**2)
+    x_ddot_desired = d2s_dt2 * (end_pos - start_pos)
+
+    return x_desired, x_dot_desired, x_ddot_desired
 
 @dataclass
 class HybridControllerConfig:
@@ -109,7 +141,7 @@ class HybridControllerConfig:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-10.0])
+            self.F_desired_contact = np.array([-5.0])
 
 
 class HybridController:
@@ -198,7 +230,8 @@ class HybridController:
     def starting(
         self,
         current_time: float,
-        target_pos: np.ndarray,
+        start_pos: np.ndarray,
+        end_pos: np.ndarray,
         target_rot: np.ndarray,
         q0: np.ndarray,
         pino_model: pino.Model,
@@ -220,8 +253,8 @@ class HybridController:
 
         self.start_time = current_time
         self.is_drawing = True
-
-        self.target_pos = target_pos.copy()
+        self.start_pos = start_pos.copy()
+        self.end_pos = end_pos.copy()
         self.target_rot = target_rot.copy()
         self.q0 = q0.copy()
 
@@ -263,21 +296,23 @@ class HybridController:
         # ============================================================
         elapsed = current_time - self.start_time
 
-        if elapsed < self.common_config.circle_duration:
-            self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
-                generate_circle_trajectory(
-                    elapsed,
-                    self.common_config.circle_center,
-                    self.common_config.circle_radius,
-                    self.common_config.angular_speed,
-                    self.R_slope,
-                    self.common_config.size_z
-                )
-        else:
-            # Stop after duration
-            self.x_dot_desired[:] = 0.0
-            self.x_ddot_desired[:] = 0.0
-            self.is_drawing = False
+        self.target_pos, self.x_dot_desired, self.x_ddot_desired  = generate_line_trajectory_delta(elapsed, self.start_pos, self.end_pos, 5.0) 
+
+        # if elapsed < self.common_config.circle_duration:
+        #     self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
+        #         generate_circle_trajectory(
+        #             elapsed,
+        #             self.common_config.circle_center,
+        #             self.common_config.circle_radius,
+        #             self.common_config.angular_speed,
+        #             self.R_slope,
+        #             self.common_config.size_z
+        #         )
+        # else:
+        #     # Stop after duration
+        #     self.x_dot_desired[:] = 0.0
+        #     self.x_ddot_desired[:] = 0.0
+        #     self.is_drawing = False
 
         # Get current state
         q = np.array(robot_state.q)
@@ -365,11 +400,12 @@ class HybridController:
             control_force_compensation +
             contact_force_compensation + velocity_term
         )
+        tau_ctrl_phi = J_phi.T @ F_ctrl_constraint
 
         # ============================================================
         # 7. Sum up torques
         # ============================================================
-        self.tau[:] = J_phi.T @ F_ctrl_constraint + tau_ctrl_x + tau_ctrl_v
+        self.tau[:] = tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
         self._last_control_compensation = control_force_compensation
@@ -414,3 +450,16 @@ class HybridController:
     def is_finished(self) -> bool:
         """Check if surface motion is finished."""
         return not self.is_drawing
+    
+    def is_target_reached(self, robot_state) -> bool:
+        """
+        Check if end-effector has reached target position.
+
+        Returns:
+            True if within tolerance
+        """
+        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        current_pos = O_T_EE[:3, 3]
+        distance = np.linalg.norm(current_pos - self.end_pos)
+        # logging.info("current distance: %s", distance)
+        return distance < self.common_config.position_tolerance

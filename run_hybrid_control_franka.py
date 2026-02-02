@@ -13,11 +13,11 @@ import gc
 from utils_plot import plot_ee_positions, plot_joint_torques
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 
-logging.basicConfig(
-    filename="mj_ctrl/robot_approach.log",
-    level=logging.INFO,
-    filemode="w"
-)
+# logging.basicConfig(
+#     filename="mj_ctrl/robot_approach.log",
+#     level=logging.INFO,
+#     filemode="w"
+# )
 
 def main() -> None:
     """Main function for approach control."""
@@ -84,7 +84,7 @@ def main() -> None:
         # ============================================================
         # Generate target position on the surface
         R_slope = euler_to_rot_matrix(common_config.euler)
-        target_pos = generate_start_position(
+        end_pos = generate_start_position(
             common_config.circle_radius,
             common_config.circle_center,
             common_config.size_z,
@@ -116,7 +116,7 @@ def main() -> None:
         # ============================================================
         control_phase = ControlPhase.CIRCLE_DRAWING
         sim_time = 0
-        hybrid_controller.starting(sim_time, start_pos, target_rot, q0, pino_model, pino_data)
+        hybrid_controller.starting(sim_time, start_pos, end_pos, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
@@ -159,7 +159,7 @@ def main() -> None:
                     tau = hybrid_controller.update(sim_time, robot_state)
 
                     # Check if finished
-                    if hybrid_controller.is_finished():
+                    if hybrid_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
                         print("=" * 60)
@@ -202,8 +202,8 @@ def main() -> None:
         traceback.print_exc()
         if robot is not None:
             robot.stop()
-        plot_joint_torques(hybrid_controller, common_config.dt)
-        plot_ee_positions(hybrid_controller, common_config.dt)
+        plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+        plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         return -1
     finally:
         robot.stop()
