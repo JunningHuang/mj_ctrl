@@ -206,6 +206,7 @@ def main() -> None:
             robot.stop()
         plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+        plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         return -1
     finally:
         robot.stop()

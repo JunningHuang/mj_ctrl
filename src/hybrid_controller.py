@@ -411,7 +411,7 @@ class HybridController:
         # ============================================================
         # 7. Sum up torques
         # ============================================================
-        self.tau[:] = tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
+        self.tau[:] = (current_time/1) * tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
         self._last_control_compensation = control_force_compensation
