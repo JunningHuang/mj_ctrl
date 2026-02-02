@@ -418,6 +418,7 @@ class HybridController:
         self._last_contact_compensation = contact_force_compensation
         self._last_velocity_term = velocity_term
         self._last_F_ctrl_constraint = F_ctrl_constraint
+        self.joint_torques.append(self.tau.copy())
 
         # ============================================================
         # 8. Add Gravity Compensation
@@ -431,7 +432,6 @@ class HybridController:
         # self._log_data(current_force_local, current_pos)
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
-        self.joint_torques.append(self.tau.copy())
         self.tau_ctrl_phi_log.append(tau_ctrl_phi.copy())
         self.tau_ctrl_x_log.append(tau_ctrl_x.copy())
         self.tau_ctrl_v_log.append(tau_ctrl_v.copy())
