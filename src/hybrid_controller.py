@@ -89,7 +89,7 @@ class HybridControllerConfig:
     Kp_force: float = 0.4
     Kd_force: float = 0.002
     Ki_force: float = 0.4
-    F_desired_contact: np.ndarray = np.array([-10.0])
+    F_desired_contact: np.ndarray = None
 
     def __post_init__(self):
         if self.impedance_pos is None:
@@ -108,6 +108,8 @@ class HybridControllerConfig:
         if self.Kd_null is None:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
+        if self.F_desired_contact is None:
+            self.F_desired_contact = np.array([-10.0])
 
 
 class HybridController:
