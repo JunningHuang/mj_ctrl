@@ -226,6 +226,7 @@ class HybridController:
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
         self.joint_torques: list = []
+        self.joint_g_torques: list = []
         self.tau_ctrl_phi_log: list = []
         self.tau_ctrl_x_log: list = []
         self.tau_ctrl_v_log: list = []
@@ -274,6 +275,7 @@ class HybridController:
         self.velocity_term_arr = []
         self.F_ctrl_constraint_arr = []
         self.joint_torques = []
+        self.joint_g_torques: list = []
         self.tau_ctrl_phi_log = []
         self.tau_ctrl_x_log = []
         self.tau_ctrl_v_log = []
@@ -432,6 +434,7 @@ class HybridController:
         # self._log_data(current_force_local, current_pos)
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
+        self.joint_g_torques.append(self.tau.copy())
         self.tau_ctrl_phi_log.append(tau_ctrl_phi.copy())
         self.tau_ctrl_x_log.append(tau_ctrl_x.copy())
         self.tau_ctrl_v_log.append(tau_ctrl_v.copy())

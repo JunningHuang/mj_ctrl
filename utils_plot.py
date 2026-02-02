@@ -70,6 +70,40 @@ def plot_joint_torques(
     fig.savefig(f"{plot_dir}/joint_torques.png", dpi=150)
     print(f"[PLOT] Joint torques saved to {plot_dir}/joint_torques.png")
 
+def plot_joint_torques_g(
+    controller,
+    dt: float,
+    plot_dir="mj_ctrl/plots/approach"
+) -> None:
+    """Plot joint torques from both controllers for each joint."""
+    import matplotlib.pyplot as plt
+
+    # Ensure plots directory exists
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Combine torques from both controllers
+    approach_torques = np.array(controller.joint_torques) if controller.joint_torques else np.empty((0, 7))
+
+    if approach_torques.size == 0:
+        print("[PLOT] No torque data to plot")
+        return
+
+    time_steps = np.arange(len(approach_torques)) * dt
+
+    # Create figure with 7 subplots (one per joint)
+    fig, axes = plt.subplots(7, 1, figsize=(12, 14), sharex=True)
+    fig.suptitle('Joint Torques Over Time', fontsize=14)
+
+    for i in range(7):
+        axes[i].plot(time_steps, approach_torques[:, i], 'b-', linewidth=1.5)
+        axes[i].set_ylabel(f'Joint {i+1} (Nm)')
+        axes[i].grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel('Time (s)')
+    plt.tight_layout()
+    fig.savefig(f"{plot_dir}/joint_torques.png", dpi=150)
+    print(f"[PLOT] Joint torques saved to {plot_dir}/joint_torques.png")
+
 
 def plot_control_torques(
     controller,
