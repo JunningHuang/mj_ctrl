@@ -69,3 +69,40 @@ def plot_joint_torques(
     plt.tight_layout()
     fig.savefig(f"{plot_dir}/joint_torques.png", dpi=150)
     print(f"[PLOT] Joint torques saved to {plot_dir}/joint_torques.png")
+
+
+def plot_control_torques(
+    controller,
+    dt: float,
+    plot_dir="mj_ctrl/plots/approach"
+) -> None:
+    """Plot tau_ctrl_phi, tau_ctrl_x, and tau_ctrl_v for each joint."""
+    import matplotlib.pyplot as plt
+
+    os.makedirs(plot_dir, exist_ok=True)
+
+    tau_phi = np.array(controller.tau_ctrl_phi_log) if controller.tau_ctrl_phi_log else np.empty((0, 7))
+    tau_x = np.array(controller.tau_ctrl_x_log) if controller.tau_ctrl_x_log else np.empty((0, 7))
+    tau_v = np.array(controller.tau_ctrl_v_log) if controller.tau_ctrl_v_log else np.empty((0, 7))
+
+    if tau_phi.size == 0:
+        print("[PLOT] No control torque data to plot")
+        return
+
+    time_steps = np.arange(len(tau_phi)) * dt
+
+    fig, axes = plt.subplots(7, 1, figsize=(12, 14), sharex=True)
+    fig.suptitle('Control Torque Components Over Time', fontsize=14)
+
+    for i in range(7):
+        axes[i].plot(time_steps, tau_phi[:, i], 'r-', linewidth=1.5, label='tau_ctrl_phi')
+        axes[i].plot(time_steps, tau_x[:, i], 'g-', linewidth=1.5, label='tau_ctrl_x')
+        axes[i].plot(time_steps, tau_v[:, i], 'b-', linewidth=1.5, label='tau_ctrl_v')
+        axes[i].set_ylabel(f'Joint {i+1} (Nm)')
+        axes[i].grid(True, alpha=0.3)
+        axes[i].legend(loc='upper right', fontsize=8)
+
+    axes[-1].set_xlabel('Time (s)')
+    plt.tight_layout()
+    fig.savefig(f"{plot_dir}/control_torques.png", dpi=150)
+    print(f"[PLOT] Control torques saved to {plot_dir}/control_torques.png")
