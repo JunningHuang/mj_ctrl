@@ -75,31 +75,39 @@ def generate_circle_trajectory(
 class HybridControllerConfig:
     """Configuration for hybrid force-impedance controller."""
     # Impedance control gains
+    Kpos: float = 0.95  # Position error gain
+    Kori: float = 0.95 # Orientation error gain
     damping_ratio: float = 1.0
-    impedance_pos: np.ndarray = None
-    impedance_ori: np.ndarray = None
+    Kp: np.ndarray = None  # Task space proportional gain
+    Kd: np.ndarray = None  # Task space derivative gain
     Kp_null: np.ndarray = None
     Kd_null: np.ndarray = None
-
-    # Material stiffness
-    k_normal: float = 5000.0
+    impedance_pos: np.ndarray = None
+    impedance_ori: np.ndarray = None
 
     # Force control gains
     Kp_force: float = 0.4
     Kd_force: float = 0.002
     Ki_force: float = 0.4
-    F_desired_contact: np.ndarray = None
+    F_desired_contact: np.ndarray = np.array([-10.0])
 
     def __post_init__(self):
         if self.impedance_pos is None:
-            self.impedance_pos = np.asarray([100.0, 100.0, 100.0]) * 2
+            self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
         if self.impedance_ori is None:
-            self.impedance_ori = np.asarray([50.0, 50.0, 50.0]) * 2
+            self.impedance_ori = np.asarray([50.0, 50.0, 50.0])
+        if self.Kp is None:
+            self.Kp = np.concatenate([self.impedance_pos, self.impedance_ori], axis=0)
+        if self.Kd is None:
+            damping_ratio = 1.0
+            damping_pos = damping_ratio * 2 * np.sqrt(self.impedance_pos)
+            damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
+            self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
-            self.Kd_null = self.damping_ratio * 2 * np.sqrt(self.Kp_null)
-        if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-10.0])
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
+        if self.Kd_null is None:
+            damping_ratio = 1.0
+            self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
 
 
 class HybridController:
@@ -116,7 +124,7 @@ class HybridController:
         config: HybridControllerConfig,
         common_config: ControllerConfig,
         n_joints: int = 7,
-        ee_frame_name: str = "attachment_site"
+        ee_frame_name: str = "attachment"
     ):
         """
         Initialize hybrid controller.
@@ -132,11 +140,7 @@ class HybridController:
         self.n_joints = n_joints
         self.ee_frame_name = ee_frame_name
 
-        # Control matrices
-        damping_pos = self.config.damping_ratio * 2 * np.sqrt(self.config.impedance_pos)
-        damping_ori = self.config.damping_ratio * 2 * np.sqrt(self.config.impedance_ori)
-        self.Kp = np.concatenate([self.config.impedance_pos, self.config.impedance_ori])
-        self.Kd = np.concatenate([damping_pos, damping_ori])
+        
 
         # Selection matrices
         self.S_fc = np.zeros((6, 1))
@@ -209,7 +213,6 @@ class HybridController:
             pino_model: Pinocchio model
             pino_data: Pinocchio data
         """
-        self.q0 = q0.copy()
         self.pino_model = pino_model
         self.pino_data = pino_data
 
@@ -218,6 +221,10 @@ class HybridController:
 
         self.target_pos = target_pos.copy()
         self.target_rot = target_rot.copy()
+        self.q0 = q0.copy()
+
+        # Cache frame ID to avoid string lookup every iteration
+        self.pino_frame_id = self.pino_model.getFrameId(self.ee_frame_name)
 
         # Clear logging
         self.contact_forces = []
@@ -285,10 +292,7 @@ class HybridController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        pino_frame_id = self.pino_model.getFrameId(self.ee_frame_name)
-        jac = pino.getFrameJacobian(
-            self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED
-        )
+        jac = pino.getFrameJacobian(self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
         M = pino.crba(self.pino_model, self.pino_data, q)
         M_inv = pino.computeMinverse(self.pino_model, self.pino_data, q)
 
@@ -334,8 +338,8 @@ class HybridController:
             x_acc_desired=x_ddot_desired_sel,
             x_delta=x_tilde,
             x_dot_delta=x_dot_tilde,
-            Kp=self.Kp @ self.S_v,
-            Kd=self.Kd @ self.S_v
+            Kp=self.config.Kp @ self.S_v,
+            Kd=self.config.Kd @ self.S_v
         )
         F_ctrl_x = Mx_motion @ a_motion
         tau_ctrl_x = J_motion.T @ F_ctrl_x
@@ -345,7 +349,7 @@ class HybridController:
         # ============================================================
         C = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, q, dq)
         J_dot = pino.getFrameJacobianTimeVariation(
-            self.pino_model, self.pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED
+            self.pino_model, self.pino_data, self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED
         )
         J_phi_dot = self.S_f.T @ J_dot
 
