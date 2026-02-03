@@ -182,7 +182,8 @@ def main() -> None:
             # 7. Plot Results
             # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         except KeyboardInterrupt:
@@ -192,7 +193,8 @@ def main() -> None:
             torque_cmd = Torques([0.0] * 7)
             torque_cmd.motion_finished = True
             active_control.writeOnce(torque_cmd)
-            plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
 
@@ -204,7 +206,8 @@ def main() -> None:
         traceback.print_exc()
         if robot is not None:
             robot.stop()
-        plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+        plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
+        plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
         plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         return -1
