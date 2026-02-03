@@ -413,7 +413,9 @@ class HybridController:
         # ============================================================
         # 7. Sum up torques
         # ============================================================
-        # self.tau[:] = (current_time/1) * tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
+        alpha = np.clip(current_time / 0.1, 0.0, 1.0)
+        last_command_tau = np.round(robot_state.tau_J_d, 4)
+        tau_ctrl_phi = last_command_tau + alpha * (tau_ctrl_phi - last_command_tau)
         self.tau[:] = tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
