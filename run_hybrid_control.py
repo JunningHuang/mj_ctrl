@@ -319,7 +319,8 @@ def main() -> None:
         # 9. Plot Results
         # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_joint_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
+            plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
+            plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
             print("\n[MAIN] Hybrid control finished")
