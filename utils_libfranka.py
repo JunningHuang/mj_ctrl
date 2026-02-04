@@ -73,6 +73,23 @@ def euler_to_rot_matrix(euler):
     
     return R_z @ R_y @ R_x
 
+def compute_ee_pose_error_quat(target_pos, current_pos, target_quat, current_mat, Kpos=0.95, Kori=0.95):
+    twist = np.zeros(6)
+    Kori: float = 0.95
+    dx = target_pos - current_pos
+    twist[:3] = Kpos * dx
+
+    if np.all(current_mat == 0):
+        rot_current = Rotation.from_matrix(np.eye(3))
+    else:
+        rot_current = Rotation.from_matrix(current_mat.reshape(3,3))
+    rot_target = Rotation.from_quat(np.roll(target_quat, -1))
+    
+    R_error = rot_target * rot_current.inv()
+    twist[3:] = Kori * R_error.as_rotvec()
+
+    return twist
+
 def compute_ee_pose_error(target_pos, current_pos, target_rot, current_mat, Kpos=0.95, Kori=0.95):
     twist = np.zeros(6)
     # site_quat = np.zeros(4)

@@ -239,7 +239,7 @@ class CartesianSpacePDController:
         O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
         current_pos = O_T_EE[:3, 3]
         current_mat = O_T_EE[:3, :3]
-        twist = compute_ee_pose_error(
+        twist = compute_ee_pose_error_quat(
             self.target_pos,
             current_pos,
             self.target_quat,
@@ -508,7 +508,7 @@ class HybridController:
         # Motion Space
         #----------------------------------------------------
         # Compute the motion-space inertia matrix for x-y plane
-        twist = compute_ee_pose_error(
+        twist = compute_ee_pose_error_quat(
                     self.target_pos, 
                     current_pos,
                     self.target_quat,

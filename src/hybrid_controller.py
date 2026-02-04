@@ -136,7 +136,7 @@ class HybridControllerConfig:
             damping_ori = damping_ratio * 2 * np.sqrt(self.impedance_ori)
             self.Kd = np.concatenate([damping_pos, damping_ori], axis=0)
         if self.Kp_null is None:
-            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]) * 0.2
+            self.Kp_null = np.asarray([75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0])
         if self.Kd_null is None:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
@@ -434,7 +434,7 @@ class HybridController:
         # ============================================================
         # 9. Log Data
         # ============================================================
-        # self._log_data(current_force_local, current_pos)
+        self._log_force_data(current_force_local)
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
         self.joint_g_torques.append(self.tau.copy())
@@ -444,13 +444,10 @@ class HybridController:
 
         return self.tau
 
-    def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray) -> None:
+    def _log_force_data(self, F_ext_local: np.ndarray) -> None:
         """Log data for plotting."""
         self.contact_forces.append(F_ext_local[:3].copy())
         self.desired_forces.append(-self.config.F_desired_contact.copy())
-        self.ee_positions.append(current_pos.copy())
-        self.target_positions.append(self.target_pos.copy())
-
         if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
             self.contact_force_compensation_arr.append(self._last_contact_compensation.copy())
