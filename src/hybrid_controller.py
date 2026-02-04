@@ -307,23 +307,23 @@ class HybridController:
         # ============================================================
         elapsed = current_time - self.start_time
 
-        self.target_pos, self.x_dot_desired, self.x_ddot_desired  = generate_line_trajectory_delta(elapsed, self.start_pos, self.end_pos, 5.0) 
+        # self.target_pos, self.x_dot_desired, self.x_ddot_desired  = generate_line_trajectory_delta(elapsed, self.start_pos, self.end_pos, 5.0) 
 
-        # if elapsed < self.common_config.circle_duration:
-        #     self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
-        #         generate_circle_trajectory(
-        #             elapsed,
-        #             self.common_config.circle_center,
-        #             self.common_config.circle_radius,
-        #             self.common_config.angular_speed,
-        #             self.R_slope,
-        #             self.common_config.size_z
-        #         )
-        # else:
-        #     # Stop after duration
-        #     self.x_dot_desired[:] = 0.0
-        #     self.x_ddot_desired[:] = 0.0
-        #     self.is_drawing = False
+        if elapsed < self.common_config.circle_duration:
+            self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
+                generate_circle_trajectory(
+                    elapsed,
+                    self.common_config.circle_center,
+                    self.common_config.circle_radius,
+                    self.common_config.angular_speed,
+                    self.R_slope,
+                    self.common_config.size_z
+                )
+        else:
+            # Stop after duration
+            self.x_dot_desired[:] = 0.0
+            self.x_ddot_desired[:] = 0.0
+            self.is_drawing = False
 
         # Get current state
         q = np.array(robot_state.q)
