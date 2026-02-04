@@ -21,90 +21,9 @@ from src import (
     get_robot_config
 )
 # import logging
-from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques
+from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 from mujoco_robot_interface import MujocoRobotInterface, Torques
-
-
-def plot_hybrid_results(
-    hybrid_controller: HybridController,
-    dt: float,
-    robot_name: str
-) -> None:
-    """Plot results from both controllers."""
-
-    plot_dir = "mj_ctrl/plots/sim/circle/force"
-
-    # ============================================================
-    # Plot Contact Forces (Hybrid Phase Only)
-    # ============================================================
-    contact_forces = np.array(hybrid_controller.contact_forces)
-    desired_forces = np.array(hybrid_controller.desired_forces)
-
-    if len(contact_forces) > 0:
-        if contact_forces.ndim == 1:
-            contact_forces = contact_forces[:, None]
-            desired_forces = desired_forces[:, None]
-
-        timesteps, n_dim = contact_forces.shape
-        t = np.arange(timesteps) * dt
-
-        fig = plt.figure(figsize=(8, 3 * n_dim))
-        for i in range(n_dim):
-            plt.subplot(n_dim, 1, i + 1)
-            plt.plot(t, contact_forces[:, i], label="Contact force")
-            plt.plot(t, desired_forces[:, 0], label="Desired force")
-            plt.ylabel(f"Dim {i + 1}")
-            plt.xlabel("Time [s]")
-            plt.legend()
-            plt.grid(True)
-        fig.suptitle(f'{robot_name.upper()}: Contact Forces')
-        plt.tight_layout()
-        plt.savefig(f"{plot_dir}/hybrid_contact_forces_{robot_name}.png")
-
-    # ============================================================
-    # Plot Force Decomposition Components
-    # ============================================================
-    if (hasattr(hybrid_controller, 'control_force_compensation_arr') and
-        len(hybrid_controller.control_force_compensation_arr) > 0):
-
-        control_comp = np.array(hybrid_controller.control_force_compensation_arr)
-        contact_comp = np.array(hybrid_controller.contact_force_compensation_arr)
-        velocity_term = np.array(hybrid_controller.velocity_term_arr)
-        f_ctrl_constraint = np.array(hybrid_controller.F_ctrl_constraint_arr)
-
-        timesteps = len(control_comp)
-        t = np.arange(timesteps) * dt
-
-        # Determine number of dimensions
-        if control_comp.ndim == 1:
-            n_dim = 1
-            control_comp = control_comp[:, None]
-            contact_comp = contact_comp[:, None]
-            velocity_term = velocity_term[:, None]
-            f_ctrl_constraint = f_ctrl_constraint[:, None]
-        else:
-            n_dim = control_comp.shape[1]
-
-        fig, axes = plt.subplots(n_dim, 1, figsize=(12, 3 * n_dim))
-        if n_dim == 1:
-            axes = [axes]
-
-        for i in range(n_dim):
-            axes[i].plot(t, control_comp[:, i], label='Control Force Compensation', linewidth=2)
-            axes[i].plot(t, contact_comp[:, i], label='Contact Force Compensation', linewidth=2)
-            axes[i].plot(t, velocity_term[:, i], label='Velocity Term', linewidth=2)
-            axes[i].plot(t, f_ctrl_constraint[:, i], label='F_ctrl Constraint', linewidth=2)
-            axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
-            axes[i].legend(loc='best')
-            axes[i].grid(True, alpha=0.3)
-            axes[i].set_title(f'Force Decomposition - Dimension {i + 1}')
-
-        axes[-1].set_xlabel('Time (s)')
-        fig.suptitle(f'{robot_name.upper()}: Force Decomposition')
-        plt.tight_layout()
-        fig.savefig(f"{plot_dir}/hybrid_force_decomposition_{robot_name}.png")
-    print(f"[PLOT] Results saved to plots/ directory")
 
 
 def main() -> None:

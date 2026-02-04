@@ -10,7 +10,7 @@ from src import (
 import logging
 from pylibfranka import Robot, Torques
 import gc
-from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques
+from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 
 # logging.basicConfig(
@@ -189,6 +189,7 @@ def main() -> None:
             plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
         except KeyboardInterrupt:
             gc.enable()
             print("\nControl interrupted by user")
@@ -200,6 +201,7 @@ def main() -> None:
             plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+            plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
 
         print("\n[MAIN] Control finished")
         print(f"Total time: {sim_time:.2f}s")
@@ -213,6 +215,7 @@ def main() -> None:
         plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
         plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
         plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
+        plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
         return -1
     finally:
         robot.stop()
