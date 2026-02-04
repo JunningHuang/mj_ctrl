@@ -144,7 +144,7 @@ class HybridControllerConfig:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-5.0])
+            self.F_desired_contact = np.array([-10.0])
 
 
 class HybridController:

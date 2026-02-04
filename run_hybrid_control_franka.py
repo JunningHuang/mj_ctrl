@@ -37,7 +37,10 @@ def main() -> None:
     # ============================================================
     # 1. Create Configurations
     # ============================================================
-    common_config = ControllerConfig(circle_duration=args.circle_duration)
+    common_config = ControllerConfig(
+        circle_duration=args.circle_duration,
+        circle_center=np.array([0.4871, 0.0, 0.034]))
+    common_config.size_z = 0.01
     hybrid_config = HybridControllerConfig()
     # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
     # q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
