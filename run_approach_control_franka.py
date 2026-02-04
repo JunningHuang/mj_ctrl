@@ -172,7 +172,7 @@ def main() -> None:
             # 7. Plot Results
             # ============================================================
             print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_joint_torques(approach_controller, common_config.dt)
+            plot_joint_torques(approach_controller, "joint_torques", common_config.dt)
             plot_ee_positions(approach_controller, common_config.dt)
         except KeyboardInterrupt:
             gc.enable()
@@ -181,7 +181,7 @@ def main() -> None:
             torque_cmd = Torques([0.0] * 7)
             torque_cmd.motion_finished = True
             active_control.writeOnce(torque_cmd)
-            plot_joint_torques(approach_controller, common_config.dt)
+            plot_joint_torques(approach_controller, "joint_torques", common_config.dt)
             plot_ee_positions(approach_controller, common_config.dt)
 
         print("\n[MAIN] Control finished")
@@ -192,7 +192,7 @@ def main() -> None:
         traceback.print_exc()
         if robot is not None:
             robot.stop()
-        plot_joint_torques(approach_controller, common_config.dt)
+        plot_joint_torques(approach_controller, "joint_torques", common_config.dt)
         plot_ee_positions(approach_controller, common_config.dt)
         return -1
     finally:
