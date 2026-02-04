@@ -16,8 +16,6 @@ from scipy.spatial.transform import Rotation
 from src import (
     ControllerConfig,
     ControlPhase,
-    CartesianSpacePDController,
-    CartesianSpacePDControlConfig,
     HybridController,
     HybridControllerConfig,
     get_robot_config
