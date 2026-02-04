@@ -123,6 +123,9 @@ class HybridControllerConfig:
     Ki_force: float = 0.4
     F_desired_contact: np.ndarray = None
 
+    # Torque rate limiting (max Nm change per timestep)
+    max_delta_tau: float = 1.0
+
     def __post_init__(self):
         if self.impedance_pos is None:
             self.impedance_pos = np.asarray([100.0, 100.0, 100.0])
@@ -413,9 +416,6 @@ class HybridController:
         # ============================================================
         # 7. Sum up torques
         # ============================================================
-        alpha = np.clip(current_time / 0.1, 0.0, 1.0)
-        last_command_tau = np.round(robot_state.tau_J_d, 4)
-        tau_ctrl_phi = last_command_tau + alpha * (tau_ctrl_phi - last_command_tau)
         self.tau[:] = tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
 
         # Store for logging
@@ -430,6 +430,17 @@ class HybridController:
         # ============================================================
         if self.common_config.gravity_compensation:
             self.tau += pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
+
+        # ============================================================
+        # 8b. Torque Rate Limiting
+        # ============================================================
+        # Clamp per-joint torque change relative to last applied command.
+        # This avoids the lift/drop caused by alpha-blending a component
+        # torque against the total previous command.
+        last_command_tau = np.array(robot_state.tau_J_d)
+        delta_tau = self.tau - last_command_tau
+        delta_tau = np.clip(delta_tau, -self.config.max_delta_tau, self.config.max_delta_tau)
+        self.tau[:] = last_command_tau + delta_tau
 
         # ============================================================
         # 9. Log Data
