@@ -29,7 +29,7 @@ class MujocoRobotState:
     with controllers designed for real robot control.
     """
 
-    def __init__(self, q: np.ndarray, dq: np.ndarray, O_T_EE: np.ndarray, O_F_ext_hat_K: np.ndarray):
+    def __init__(self, q: np.ndarray, dq: np.ndarray, O_T_EE: np.ndarray, O_F_ext_hat_K: np.ndarray, tau_J_d: np.ndarray):
         """
         Initialize robot state.
 
@@ -38,11 +38,13 @@ class MujocoRobotState:
             dq: Joint velocities (7,)
             O_T_EE: End-effector transformation matrix in base frame, flattened (16,)
             O_F_ext_hat_K: Estimated external wrench (force, torque) in stiffness frame (6,)
+            tau_J_d: Last desired joint torques (7,)
         """
         self.q = q
         self.dq = dq
         self.O_T_EE = O_T_EE
         self.O_F_ext_hat_K = O_F_ext_hat_K
+        self.tau_J_d = tau_J_d
 
 
 class MujocoRobotInterface:
@@ -124,7 +126,8 @@ class MujocoRobotInterface:
         # Get external forces from contact sensors
         O_F_ext_hat_K = self._estimate_external_forces()
         # O_F_ext_hat_K = np.zeros(6)
-        return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K), self.model.opt.timestep
+        tau_J_d = self.data.ctrl[self.actuator_ids].copy()
+        return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K, tau_J_d), self.model.opt.timestep
 
     def _estimate_external_forces(self, obj_name='slope_geom') -> np.ndarray:
         """
