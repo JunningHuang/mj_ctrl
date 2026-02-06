@@ -144,7 +144,8 @@ class MujocoRobotInterface:
             contact_force_local = np.zeros(6)
             for i in range(self.data.ncon):
                 contact = self.data.contact[i]
-                if contact.geom1 == self.model.geom(obj_name).id or contact.geom2 == self.model.geom(obj_name).id:
+                # if contact.geom1 == self.model.geom(obj_name).id or contact.geom2 == self.model.geom(obj_name).id:
+                if {contact.geom1, contact.geom2} == {self.model.geom(obj_name).id, self.model.geom("attachment_collision").id}:
                     mujoco.mj_contactForce(self.model, self.data, i, contact_force_local)
                     break
             # Contact frame x-axis (normal) points FROM geom2 To geom1
@@ -165,7 +166,7 @@ class MujocoRobotInterface:
             current_force_local[:3] = contact_rot_local @ force_local
             current_force_local[3:] = contact_force_local[3:]
         # return current_force_world, current_force_local, contact_pos
-        return current_force_local
+        return - current_force_local
 
     def writeOnce(self, t: Torques) -> None:
         """
