@@ -163,6 +163,7 @@ def main() -> None:
 
                     # Check if finished
                     if hybrid_controller.is_target_reached(robot_state):
+                    # if hybrid_controller.is_finished():
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
                         print("=" * 60)
