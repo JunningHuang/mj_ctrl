@@ -25,7 +25,7 @@ class ControllerConfig:
     circle_center: np.ndarray = None
     circle_radius: float = 0.05
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi/4
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
