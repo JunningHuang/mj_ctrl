@@ -458,7 +458,7 @@ class HybridController:
     def _log_force_data(self, F_ext_local: np.ndarray) -> None:
         """Log data for plotting."""
         self.contact_forces.append(F_ext_local[:3].copy())
-        self.desired_forces.append(-self.config.F_desired_contact.copy())
+        self.desired_forces.append(self.config.F_desired_contact.copy())
         if hasattr(self, '_last_control_compensation'):
             self.control_force_compensation_arr.append(self._last_control_compensation.copy())
             self.contact_force_compensation_arr.append(self._last_contact_compensation.copy())
