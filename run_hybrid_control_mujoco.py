@@ -169,7 +169,7 @@ def main() -> None:
                     tau = hybrid_controller.update(sim_time, robot_state)
 
                     # Check if finished
-                    if hybrid_controller.is_finished():
+                    if hybrid_controller.is_target_reached(robot_state):
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
                         print("=" * 60)
