@@ -7,7 +7,7 @@ def plot_ee_positions(
         dt: float,
         plot_dir="mj_ctrl/plots/approach"
 ) -> None:
-    """Plot ee_positions and target_positions for x, y, z axes."""
+    """Plot ee_positions, target_positions, and their velocities for x, y, z axes."""
     import matplotlib.pyplot as plt
     os.makedirs(plot_dir, exist_ok=True)
 
@@ -21,6 +21,11 @@ def plot_ee_positions(
     time_steps = np.arange(len(ee_pos)) * dt
     labels = ['X', 'Y', 'Z']
 
+    # Compute velocities via numerical differentiation
+    ee_vel = np.gradient(ee_pos, dt, axis=0)
+    tgt_vel = np.gradient(tgt_pos, dt, axis=0) if tgt_pos.size > 0 else np.empty((0, 3))
+
+    # --- Position plot ---
     fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
     fig.suptitle('End-Effector Position vs Target Position', fontsize=14)
 
@@ -35,6 +40,22 @@ def plot_ee_positions(
     # plt.tight_layout()
     fig.savefig(f"{plot_dir}/ee_positions.png", dpi=150)
     print(f"[PLOT] EE positions saved to {plot_dir}/ee_positions.png")
+
+    # --- Velocity plot ---
+    fig_vel, axes_vel = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    fig_vel.suptitle('End-Effector Velocity vs Target Velocity', fontsize=14)
+
+    for i in range(3):
+        axes_vel[i].plot(time_steps, ee_vel[:, i], 'b-', linewidth=1.5, label='EE velocity')
+        if tgt_vel.size > 0:
+            axes_vel[i].plot(time_steps, tgt_vel[:, i], 'r--', linewidth=1.5, label='Target velocity')
+        axes_vel[i].set_ylabel(f'{labels[i]} (m/s)')
+        axes_vel[i].grid(True, alpha=0.3)
+        axes_vel[i].legend(loc='upper right')
+
+    axes_vel[-1].set_xlabel('Time (s)')
+    fig_vel.savefig(f"{plot_dir}/ee_velocities.png", dpi=150)
+    print(f"[PLOT] EE velocities saved to {plot_dir}/ee_velocities.png")
 
 def plot_joint_torques(
     controller,
