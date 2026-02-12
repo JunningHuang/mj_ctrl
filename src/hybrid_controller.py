@@ -103,6 +103,61 @@ def generate_line_trajectory_delta(elapsed_time: float,
 
     return x_desired, x_dot_desired, x_ddot_desired
 
+def generate_sinusoidal_trajectory(
+    elapsed_time: float,
+    start_pos: np.ndarray,
+    amplitude: float,
+    frequency: float,
+    R_slope: np.ndarray,
+    size_z: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Generate desired position, velocity, and acceleration for sinusoidal trajectory.
+    
+    The trajectory moves in the -x direction (back and forth) with sinusoidal motion.
+    Perfect for observing friction effects at velocity reversals.
+    
+    Args:
+        elapsed_time: Elapsed time since start of motion
+        start_pos: Starting position (3D position, center of motion)
+        amplitude: Amplitude of sinusoidal motion (meters, e.g., 0.04 for ±4cm)
+        frequency: Frequency of oscillation (Hz, e.g., 0.5 for slow motion)
+        R_slope: Rotation matrix of the slope
+        size_z: Height offset on the surface
+    
+    Returns:
+        Tuple of (target_pos, x_dot_desired, x_ddot_desired)
+    """
+    omega = 2 * np.pi * frequency  # Angular frequency (rad/s)
+    
+    # Local coordinates (on the slope surface)
+    target_pos_local = np.zeros(3)
+    x_dot_desired_local = np.zeros(3)
+    x_ddot_desired_local = np.zeros(3)
+    
+    # Position: x(t) = A * sin(ωt)
+    # This oscillates between -A and +A in the x direction
+    target_pos_local[0] = amplitude * np.sin(omega * elapsed_time)
+    target_pos_local[1] = 0.0  # No motion in y
+    target_pos_local[2] = size_z  # Keep Z at surface height
+    
+    # Velocity: ẋ(t) = Aω * cos(ωt)
+    x_dot_desired_local[0] = amplitude * omega * np.cos(omega * elapsed_time)
+    x_dot_desired_local[1] = 0.0
+    x_dot_desired_local[2] = 0.0
+    
+    # Acceleration: ẍ(t) = -Aω² * sin(ωt)
+    x_ddot_desired_local[0] = -amplitude * omega**2 * np.sin(omega * elapsed_time)
+    x_ddot_desired_local[1] = 0.0
+    x_ddot_desired_local[2] = 0.0
+    
+    # Transform from local (slope) coordinates to world coordinates
+    return (
+        start_pos + (R_slope @ target_pos_local),
+        R_slope @ x_dot_desired_local,
+        R_slope @ x_ddot_desired_local
+    )
+
 @dataclass
 class HybridControllerConfig:
     """Configuration for hybrid force-impedance controller."""
@@ -313,16 +368,34 @@ class HybridController:
         #     self.end_pos, 
         #     5.0) 
 
+        # if elapsed < self.common_config.circle_duration:
+        #     self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
+        #         generate_circle_trajectory(
+        #             elapsed,
+        #             self.common_config.circle_center,
+        #             self.common_config.circle_radius,
+        #             self.common_config.angular_speed,
+        #             self.R_slope,
+        #             self.common_config.size_z
+        #         )
+        # else:
+        #     # Stop after duration
+        #     self.x_dot_desired[:] = 0.0
+        #     self.x_ddot_desired[:] = 0.0
+        #     self.is_drawing = False
+
+        amplitude = 0.04  # 4cm amplitude → 8cm total range (±4cm)
+        frequency = 0.2
+
         if elapsed < self.common_config.circle_duration:
-            self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
-                generate_circle_trajectory(
-                    elapsed,
-                    self.common_config.circle_center,
-                    self.common_config.circle_radius,
-                    self.common_config.angular_speed,
-                    self.R_slope,
-                    self.common_config.size_z
-                )
+            self.target_pos, self.x_dot_desired, self.x_ddot_desired = generate_sinusoidal_trajectory(
+                elapsed_time=elapsed,
+                start_pos=self.common_config.circle_center,
+                amplitude=amplitude,
+                frequency=frequency,
+                R_slope=self.R_slope,
+                size_z=0.0
+            )
         else:
             # Stop after duration
             self.x_dot_desired[:] = 0.0
