@@ -291,7 +291,7 @@ class HybridController:
         print(f"[HYBRID START] Radius: {self.common_config.circle_radius}")
         print(f"[HYBRID START] Force control: F_desired={self.config.F_desired_contact}")
         print((f"[HYBRID START] start pos: {start_pos}"))
-        print((f"[HYBRID START] start pos: {end_pos}"))
+        print((f"[HYBRID START] end pos: {end_pos}"))
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
