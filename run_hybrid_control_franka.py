@@ -118,7 +118,7 @@ def main() -> None:
         # ============================================================
         control_phase = ControlPhase.CIRCLE_DRAWING
         sim_time = 0
-        hybrid_controller.starting(sim_time, start_pos, end_pos, target_rot, q0, pino_model, pino_data)
+        hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("PHASE 1: APPROACHING TARGET POSITION")
@@ -161,8 +161,8 @@ def main() -> None:
                     tau = hybrid_controller.update(sim_time, robot_state)
 
                     # Check if finished
-                    if hybrid_controller.is_target_reached(robot_state):
-                    # if hybrid_controller.is_finished():
+                    # if hybrid_controller.is_target_reached(robot_state):
+                    if hybrid_controller.is_finished():
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
                         print("=" * 60)

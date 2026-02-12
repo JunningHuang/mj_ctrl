@@ -39,7 +39,7 @@ def main() -> int:
         # default=[0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441], #circel center
         # default=[0.0222, 0.7526, -0.0251, -2.1784, -0.0089, 2.9499, -0.2435], #circel start point
         # default=[0.1543, 0.4641, -0.0974, -2.5512, -0.0034, 3.0328, 0.6699],
-        default=[0.1137, 0.5506, -0.0727, -2.4394, 0.054, 2.9888, 0.7299],
+        default=[0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684], # scale circel start point
         help="7 joint targets in rad (default: Franka start pose)",
     )
     parser.add_argument("--plot", action="store_true", help="Plot joint trajectories after motion")

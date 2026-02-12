@@ -153,7 +153,7 @@ def main() -> None:
             sim_time = 0.0
             transition_time = 0.0
 
-            hybrid_controller.starting(sim_time, start_pos, end_pos, target_rot, q0, pino_model, pino_data)
+            hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
 
             while viewer.is_running():
                 step_start = time.time()

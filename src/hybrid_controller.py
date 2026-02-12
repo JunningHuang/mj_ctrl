@@ -144,7 +144,7 @@ class HybridControllerConfig:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-10.0])
+            self.F_desired_contact = np.array([-8.0])
 
 
 class HybridController:
@@ -237,8 +237,6 @@ class HybridController:
     def starting(
         self,
         current_time: float,
-        start_pos: np.ndarray,
-        end_pos: np.ndarray,
         target_rot: np.ndarray,
         q0: np.ndarray,
         pino_model: pino.Model,
@@ -260,10 +258,10 @@ class HybridController:
 
         self.start_time = current_time
         self.is_drawing = True
-        self.start_pos = start_pos.copy()
-        self.end_pos = end_pos.copy()
         self.target_rot = target_rot.copy()
         self.q0 = q0.copy()
+        self.start_pos = self.common_config.circle_center
+        self.end_pos = self.common_config.circle_center + np.array([self.common_config.circle_radius, 0, 0])
 
         # Cache frame ID to avoid string lookup every iteration
         self.pino_frame_id = self.pino_model.getFrameId(self.ee_frame_name)
@@ -290,8 +288,8 @@ class HybridController:
         print(f"[HYBRID START] Center: {self.common_config.circle_center}")
         print(f"[HYBRID START] Radius: {self.common_config.circle_radius}")
         print(f"[HYBRID START] Force control: F_desired={self.config.F_desired_contact}")
-        print((f"[HYBRID START] start pos: {start_pos}"))
-        print((f"[HYBRID START] end pos: {end_pos}"))
+        print((f"[HYBRID START] start pos: {self.start_pos}"))
+        print((f"[HYBRID START] end pos: {self.end_pos}"))
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
@@ -309,23 +307,27 @@ class HybridController:
         # ============================================================
         elapsed = current_time - self.start_time
 
-        self.target_pos, self.x_dot_desired, self.x_ddot_desired  = generate_line_trajectory_delta(elapsed, self.start_pos, self.end_pos, 5.0) 
+        # self.target_pos, self.x_dot_desired, self.x_ddot_desired  = generate_line_trajectory_delta(
+        #     elapsed, 
+        #     self.start_pos, 
+        #     self.end_pos, 
+        #     5.0) 
 
-        # if elapsed < self.common_config.circle_duration:
-        #     self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
-        #         generate_circle_trajectory(
-        #             elapsed,
-        #             self.common_config.circle_center,
-        #             self.common_config.circle_radius,
-        #             self.common_config.angular_speed,
-        #             self.R_slope,
-        #             self.common_config.size_z
-        #         )
-        # else:
-        #     # Stop after duration
-        #     self.x_dot_desired[:] = 0.0
-        #     self.x_ddot_desired[:] = 0.0
-        #     self.is_drawing = False
+        if elapsed < self.common_config.circle_duration:
+            self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
+                generate_circle_trajectory(
+                    elapsed,
+                    self.common_config.circle_center,
+                    self.common_config.circle_radius,
+                    self.common_config.angular_speed,
+                    self.R_slope,
+                    self.common_config.size_z
+                )
+        else:
+            # Stop after duration
+            self.x_dot_desired[:] = 0.0
+            self.x_ddot_desired[:] = 0.0
+            self.is_drawing = False
 
         # Get current state
         q = np.array(robot_state.q)

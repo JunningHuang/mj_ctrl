@@ -32,13 +32,13 @@ class ControllerConfig:
 
     # Constraint geometry
     euler: np.ndarray = None
-    size_z: float = 0.00
+    size_z: float = 0.0001
     use_table: bool = False
 
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
             # self.circle_center = np.array([0.4871, 0.0, 0.044])
-            self.circle_center = np.array([0.4634, 0.0108, 0.0857])
+            self.circle_center = np.array([0.5038, 0.0108, 0.0857])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])
