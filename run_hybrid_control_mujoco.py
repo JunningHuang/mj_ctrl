@@ -60,13 +60,11 @@ def main() -> None:
     # 2. Create Configurations
     # ============================================================
     common_config = ControllerConfig(
-        circle_duration=args.circle_duration,
-        circle_center=np.array([0.4871, 0.0, 0.034]))
-    common_config.size_z = 0.01
+        circle_duration=args.circle_duration)
     common_config.gravity_compensation = True
     hybrid_config = HybridControllerConfig()
     # q0 = np.array([-3.9000e-03, 7.0400e-01, -9.0000e-04, -2.1658e+00, -2.9000e-03, 2.7854e+00, -7.8220e-01])
-    q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
+    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
 
     
 
@@ -169,7 +167,8 @@ def main() -> None:
                     tau = hybrid_controller.update(sim_time, robot_state)
 
                     # Check if finished
-                    if hybrid_controller.is_target_reached(robot_state):
+                    # if hybrid_controller.is_target_reached(robot_state):
+                    if hybrid_controller.is_finished():
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
                         print("=" * 60)
