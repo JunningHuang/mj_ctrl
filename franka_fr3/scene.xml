@@ -1,5 +1,5 @@
 <mujoco model="fr3 scene">
-  <include file="fr3_no_joint_friction.xml"/>
+  <include file="fr3_no_jointf_no_surff.xml"/>
 
   <statistic center="0.2 0 0.4" extent=".8"/>
 

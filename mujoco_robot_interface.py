@@ -151,22 +151,22 @@ class MujocoRobotInterface:
             # Contact frame x-axis (normal) points FROM geom2 To geom1
             # from slope to ee
             contact_rot = contact.frame.reshape(3, 3).T # from local to world
-            contact_rot_local = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]) # move normal force from x to z
-            contact_pos = contact.pos.copy()
-            force_local = contact_force_local[:3]
-            moment_local = contact_force_local[3:]
-            force_world = contact_rot @ force_local
+            # contact_rot_local = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]) # move normal force from x to z
+            # contact_pos = contact.pos.copy()
+            # force_local = contact_force_local[:3]
+            # moment_local = contact_force_local[3:]
+            # force_world = contact_rot @ force_local
             # answer: moment_world = R @ moment_local + p × force_world
-            moment_rotated = contact_rot @ moment_local
-            position_cross_force = np.cross(contact_pos, force_world)
-            moment_world = moment_rotated + position_cross_force
-            current_force_world[:3] = force_world
-            current_force_world[3:] = moment_world
+            # moment_rotated = contact_rot @ moment_local
+            # position_cross_force = np.cross(contact_pos, force_world)
+            # moment_world = moment_rotated + position_cross_force
+            # current_force_world[:3] = force_world
+            # current_force_world[3:] = moment_world
             # local force
-            current_force_local[:3] = contact_rot_local @ force_local
+            current_force_local[:3] = contact_rot @ contact_force_local[:3]
             current_force_local[3:] = contact_force_local[3:]
         # return current_force_world, current_force_local, contact_pos
-        return - current_force_local
+        return current_force_local
 
     def writeOnce(self, t: Torques) -> None:
         """
