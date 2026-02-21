@@ -23,7 +23,7 @@ class RobotConfig:
 # FR3 Robot Configuration
 FR3_CONFIG = RobotConfig(
     name="fr3",
-    pinocchio_xml_path="franka_fr3/fr3.xml",
+    pinocchio_xml_path="franka_fr3/fr3_no_joint_friction.xml",
     mujoco_scene_xml_path="franka_fr3/scene.xml",
     joint_names=[
         'fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4', 
