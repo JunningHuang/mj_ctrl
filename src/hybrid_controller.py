@@ -199,7 +199,7 @@ class HybridControllerConfig:
             damping_ratio = 1.0
             self.Kd_null = damping_ratio * 2 * np.sqrt(self.Kp_null)
         if self.F_desired_contact is None:
-            self.F_desired_contact = np.array([-8.0])
+            self.F_desired_contact = np.array([-15.0])
 
 
 class HybridController:
@@ -384,23 +384,43 @@ class HybridController:
         #     self.x_ddot_desired[:] = 0.0
         #     self.is_drawing = False
 
-        amplitude = 0.04  # 4cm amplitude → 8cm total range (±4cm)
-        frequency = 0.2
-
         if elapsed < self.common_config.circle_duration:
-            self.target_pos, self.x_dot_desired, self.x_ddot_desired = generate_sinusoidal_trajectory(
-                elapsed_time=elapsed,
-                start_pos=self.common_config.circle_center,
-                amplitude=amplitude,
-                frequency=frequency,
-                R_slope=self.R_slope,
-                size_z=0.0
-            )
+            self.target_pos = self.common_config.circle_center
+            self.x_dot_desired[:] = 0.0
+            self.x_ddot_desired[:] = 0.0
+
+            # self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
+            #     generate_circle_trajectory(
+            #         elapsed,
+            #         self.common_config.circle_center,
+            #         self.common_config.circle_radius,
+            #         self.common_config.angular_speed,
+            #         self.R_slope,
+            #         self.common_config.size_z
+            #     )
         else:
             # Stop after duration
             self.x_dot_desired[:] = 0.0
             self.x_ddot_desired[:] = 0.0
             self.is_drawing = False
+
+        # amplitude = 0.04  # 4cm amplitude → 8cm total range (±4cm)
+        # frequency = 0.2
+
+        # if elapsed < self.common_config.circle_duration:
+        #     self.target_pos, self.x_dot_desired, self.x_ddot_desired = generate_sinusoidal_trajectory(
+        #         elapsed_time=elapsed,
+        #         start_pos=self.common_config.circle_center,
+        #         amplitude=amplitude,
+        #         frequency=frequency,
+        #         R_slope=self.R_slope,
+        #         size_z=0.0
+        #     )
+        # else:
+        #     # Stop after duration
+        #     self.x_dot_desired[:] = 0.0
+        #     self.x_ddot_desired[:] = 0.0
+        #     self.is_drawing = False
 
         # Get current state
         q = np.array(robot_state.q)
