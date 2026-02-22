@@ -166,7 +166,7 @@ class CartesianSpacePDController:
         current_mat = O_T_EE[:3, :3]
 
 
-        tmp_target_pos = generate_line_trajectory_delta(self.time_elapsed, self.start_pos, self.target_pos, 5.0) 
+        tmp_target_pos = generate_line_trajectory_delta(self.time_elapsed, self.start_pos, self.target_pos, 2.0) 
         twist = compute_ee_pose_error(
             tmp_target_pos,
             current_pos,

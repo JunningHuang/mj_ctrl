@@ -661,6 +661,7 @@ class HybridController:
         control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
         contact_force_compensation = 1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
         verlociy_term = 1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ self.data.qvel.copy()
+        # verlociy_term = 1 * Mx_constraint @ (- J_phi_dot) @ self.data.qvel.copy()
         F_ctrl_constraint = (
             self.config.F_desired_contact +
             control_force_compensation +
@@ -831,6 +832,47 @@ def plot_results(
         plt.savefig("plots/contact_forces.png")
 
     plot_control_torques(circle_controller, dt, transition_time)
+    # ============================================================
+    # Plot Force Decomposition Components
+    # ============================================================
+    if (hasattr(circle_controller, 'control_force_compensation_arr') and 
+        len(circle_controller.control_force_compensation_arr) > 0):
+        
+        control_comp = np.array(circle_controller.control_force_compensation_arr)
+        contact_comp = np.array(circle_controller.contact_force_compensation_arr)
+        velocity_term = np.array(circle_controller.velocity_term_arr)
+        f_ctrl_constraint = np.array(circle_controller.F_ctrl_constraint_arr)
+        
+        timesteps = len(control_comp)
+        t = np.arange(timesteps) * dt + transition_time
+        
+        # Determine number of dimensions
+        if control_comp.ndim == 1:
+            n_dim = 1
+            control_comp = control_comp[:, None]
+            contact_comp = contact_comp[:, None]
+            velocity_term = velocity_term[:, None]
+            f_ctrl_constraint = f_ctrl_constraint[:, None]
+        else:
+            n_dim = control_comp.shape[1]
+        
+        fig, axes = plt.subplots(n_dim, 1, figsize=(12, 3 * n_dim))
+        if n_dim == 1:
+            axes = [axes]
+        
+        for i in range(n_dim):
+            axes[i].plot(t, control_comp[:, i], label='Control Force Compensation', linewidth=2)
+            axes[i].plot(t, contact_comp[:, i], label='Contact Force Compensation', linewidth=2)
+            axes[i].plot(t, velocity_term[:, i], label='Velocity Term', linewidth=2)
+            axes[i].plot(t, f_ctrl_constraint[:, i], label='F_ctrl Constraint', linewidth=2)
+            axes[i].set_ylabel(f'Force Dim {i + 1} (N)')
+            axes[i].legend(loc='best')
+            axes[i].grid(True, alpha=0.3)
+            axes[i].set_title(f'KUKA: Force Decomposition - Dimension {i + 1}')
+        
+        axes[-1].set_xlabel('Time (s)')
+        plt.tight_layout()
+        fig.savefig("plots/force_decomposition.png")
 
     plt.show()
     print("[PLOT] Results saved to plots/ directory")
