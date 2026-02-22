@@ -412,6 +412,10 @@ class HybridController:
         self.contact_force_compensation_arr: list = []
         self.velocity_term_arr: list = []
         self.F_ctrl_constraint_arr: list = []
+        self.tau_constraint_arr: list = []
+        self.tau_ctrl_x_arr: list = []
+        self.tau_ctrl_v_arr: list = []
+        self.tau_gravity_arr: list = []
 
     def init(
             self,
@@ -539,6 +543,10 @@ class HybridController:
         self.contact_force_compensation_arr = []
         self.velocity_term_arr = []
         self.F_ctrl_constraint_arr = []
+        self.tau_constraint_arr = []
+        self.tau_ctrl_x_arr = []
+        self.tau_ctrl_v_arr = []
+        self.tau_gravity_arr = []
 
         # Zero control
         self.tau[:] = 0.0
@@ -669,6 +677,10 @@ class HybridController:
         self._last_contact_compensation = contact_force_compensation
         self._last_velocity_term = verlociy_term
         self._last_F_ctrl_constraint = F_ctrl_constraint
+        self._last_tau_constraint = (J_phi.T @ F_ctrl_constraint).copy()
+        self._last_tau_ctrl_x = tau_ctrl_x.copy()
+        self._last_tau_ctrl_v = tau_ctrl_v.copy()
+        self._last_tau_gravity = self.data.qfrc_bias[self.dof_ids].copy()
 
         # ============================================================
         # 6. Add Gravity Compensation
@@ -701,9 +713,60 @@ class HybridController:
             self.velocity_term_arr.append(np.zeros(1))
             self.F_ctrl_constraint_arr.append(np.zeros(1))
 
+        if hasattr(self, '_last_tau_constraint'):
+            self.tau_constraint_arr.append(self._last_tau_constraint.copy())
+            self.tau_ctrl_x_arr.append(self._last_tau_ctrl_x.copy())
+            self.tau_ctrl_v_arr.append(self._last_tau_ctrl_v.copy())
+            self.tau_gravity_arr.append(self._last_tau_gravity.copy())
+        else:
+            self.tau_constraint_arr.append(np.zeros(self.n_joints))
+            self.tau_ctrl_x_arr.append(np.zeros(self.n_joints))
+            self.tau_ctrl_v_arr.append(np.zeros(self.n_joints))
+            self.tau_gravity_arr.append(np.zeros(self.n_joints))
+
     def is_finished(self) -> bool:
         """Check if circle drawing is finished."""
         return not self.is_drawing
+
+
+def plot_control_torques(
+        circle_controller: HybridController,
+        dt: float,
+        transition_time: float
+) -> None:
+    """Plot the 4 control torque components for each joint."""
+    if (not hasattr(circle_controller, 'tau_constraint_arr') or
+            len(circle_controller.tau_constraint_arr) == 0):
+        print("[PLOT] No torque component data to plot.")
+        return
+
+    tau_constraint = np.array(circle_controller.tau_constraint_arr)  # (T, n_joints)
+    tau_ctrl_x    = np.array(circle_controller.tau_ctrl_x_arr)
+    tau_ctrl_v    = np.array(circle_controller.tau_ctrl_v_arr)
+    tau_gravity   = np.array(circle_controller.tau_gravity_arr)
+
+    n_steps, n_joints = tau_constraint.shape
+    t = np.arange(n_steps) * dt + transition_time
+
+    fig, axes = plt.subplots(n_joints, 1, figsize=(12, 3 * n_joints), sharex=True)
+    if n_joints == 1:
+        axes = [axes]
+
+    for j in range(n_joints):
+        axes[j].plot(t, tau_constraint[:, j], label=r'$J_\phi^T F_{ctrl}$', linewidth=1.5)
+        axes[j].plot(t, tau_ctrl_x[:, j],    label=r'$\tau_{ctrl,x}$',      linewidth=1.5)
+        axes[j].plot(t, tau_ctrl_v[:, j],    label=r'$\tau_{ctrl,v}$',      linewidth=1.5)
+        axes[j].plot(t, tau_gravity[:, j],   label=r'$g(q)$ (qfrc_bias)',   linewidth=1.5)
+        axes[j].set_ylabel('Torque (Nm)')
+        axes[j].set_title(f'Joint {j + 1}')
+        axes[j].legend(loc='best', fontsize=8)
+        axes[j].grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel('Time (s)')
+    fig.suptitle('Control Torque Components per Joint (MuJoCo)')
+    plt.tight_layout()
+    fig.savefig("plots/control_torques.png")
+    print("[PLOT] Control torques saved to plots/control_torques.png")
 
 
 def plot_results(
@@ -766,6 +829,8 @@ def plot_results(
             plt.grid(True)
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
+
+    plot_control_torques(circle_controller, dt, transition_time)
 
     plt.show()
     print("[PLOT] Results saved to plots/ directory")
