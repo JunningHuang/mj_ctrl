@@ -140,6 +140,7 @@ def main() -> None:
             # mujoco_interface.reset_to_keyframe()
             mujoco_interface.data.qpos[:len(q0)] = q0
             mujoco_interface.data.qvel[:] = 0
+            mujoco_interface.data.ctrl[mujoco_interface.actuator_ids] = pino.computeGeneralizedGravity(pino_model, pino_data, q0)
             mujoco.mj_forward(mujoco_interface.model, mujoco_interface.data)
             # mujoco.mj_step(mujoco_interface.model, mujoco_interface.data)
             robot_state, duration = mujoco_interface.readOnce()
