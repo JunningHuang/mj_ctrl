@@ -241,8 +241,8 @@ class HybridControlEnv:
         # ---- 1. Reset to home -----------------------------------------------
         self._reset_to_home()
 
-        # ---- 2. Approach to contact -----------------------------------------
-        self._run_approach_phase()
+        # # ---- 2. Approach to contact -----------------------------------------
+        # self._run_approach_phase()
 
         # ---- 3. Re-initialise hybrid controller -----------------------------
         robot_state, _ = self.mj.readOnce()
@@ -334,15 +334,20 @@ class HybridControlEnv:
 
     def _reset_to_home(self) -> None:
         """Reset MuJoCo data to the home keyframe or fallback joint config."""
-        try:
-            self.mj.reset_to_keyframe("home")
-            mujoco.mj_forward(self.mj.model, self.mj.data)
-        except Exception:
-            # No "home" keyframe — use the robot's built-in default q0
-            home_q0 = self.robot_cfg.q0.copy()
-            self.mj.data.qpos[: len(home_q0)] = home_q0
-            self.mj.data.qvel[:] = 0.0
-            mujoco.mj_forward(self.mj.model, self.mj.data)
+        # try:
+        #     self.mj.reset_to_keyframe("home")
+        #     mujoco.mj_forward(self.mj.model, self.mj.data)
+        # except Exception:
+        #     # No "home" keyframe — use the robot's built-in default q0
+        #     home_q0 = self.robot_cfg.q0.copy()
+        #     self.mj.data.qpos[: len(home_q0)] = home_q0
+        #     self.mj.data.qvel[:] = 0.0
+        #     mujoco.mj_forward(self.mj.model, self.mj.data)
+        home_q0 = self.contact_q0.copy()
+        self.mj.data.qpos[: len(home_q0)] = home_q0
+        self.mj.data.qvel[:] = 0.0
+        self.mj.data.ctrl[self.mj.actuator_ids] = np.array([  0.   , -36.454,  -1.728,  11.744,   0.283,   1.614,  -0.002])
+        mujoco.mj_forward(self.mj.model, self.mj.data)
 
     def _run_approach_phase(self) -> None:
         """
