@@ -20,7 +20,7 @@ dependencies:
   # PyTorch with CUDA 12.1 — change pytorch-cuda version if your driver differs
   # (11.8 → pytorch-cuda=11.8, 12.4 → pytorch-cuda=12.4, etc.)
   - pytorch>=2.1
-  - pytorch-cuda=13.0
+  - pytorch-cuda=12.4
 
   # pip-only packages
   - pip:
