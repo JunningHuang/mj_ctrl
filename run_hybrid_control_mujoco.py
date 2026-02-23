@@ -22,7 +22,7 @@ from src import (
 )
 # import logging
 from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results
-from utils_libfranka import euler_to_rot_matrix, generate_start_position
+from utils_libfranka import euler_to_rot_matrix, generate_start_position, null_space_tau, dynamically_consistent_inv
 from mujoco_robot_interface import MujocoRobotInterface, Torques
 
 
@@ -143,11 +143,57 @@ def main() -> None:
             mujoco_interface.data.ctrl[mujoco_interface.actuator_ids] = pino.computeGeneralizedGravity(pino_model, pino_data, q0)
             mujoco.mj_forward(mujoco_interface.model, mujoco_interface.data)
             # mujoco.mj_step(mujoco_interface.model, mujoco_interface.data)
+            mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
+
+            # --- Settling phase: drive contact force to desired before main loop ---
+            _frame_id = pino_model.getFrameId(robot_cfg.ee_frame_name)
+            _F_des    = float(hybrid_config.F_desired_contact[0])
+            _Kp_f, _Kd_f = 1.0, 0.02
+            _err_prev = 0.0
+            print(f"[SETTLE] Settling contact force to {_F_des:.1f} N ...")
+            for _s in range(int(3.0 / common_config.dt)):
+                _t0 = time.time()
+                _rs, _ = mujoco_interface.readOnce()
+                _q, _dq = np.array(_rs.q), np.array(_rs.dq)
+
+                pino.forwardKinematics(pino_model, pino_data, _q, _dq)
+                pino.computeJointJacobians(pino_model, pino_data)
+                pino.updateFramePlacements(pino_model, pino_data)
+                _jac   = pino.getFrameJacobian(pino_model, pino_data, _frame_id, pino.LOCAL_WORLD_ALIGNED)
+                _J_phi = hybrid_controller.S_f.T @ _jac  # (1, 7)
+
+                _F_meas   = float(np.array(_rs.O_F_ext_hat_K) @ hybrid_controller.S_fc[:, 0])
+                _err      = _F_des - _F_meas
+                _derr     = (_err - _err_prev) / common_config.dt
+                _err_prev = _err
+
+                _F_ctrl = np.array([_F_des + _Kp_f * _err + _Kd_f * _derr])
+                _tau_f  = (_J_phi.T @ _F_ctrl).flatten()
+
+                _M_inv    = pino.computeMinverse(pino_model, pino_data, _q)
+                _jac1_inv = dynamically_consistent_inv(_J_phi, _M_inv)
+                _N        = np.eye(robot_cfg.n_joints) - _J_phi.T @ _jac1_inv.T
+                _tau_n    = _N @ null_space_tau(_q, _dq, q0, hybrid_config.Kp_null, hybrid_config.Kd_null)
+
+                _tau_g = pino.computeGeneralizedGravity(pino_model, pino_data, _q)
+                _tau   = _tau_g + _tau_f + _tau_n
+
+                mujoco_interface.writeOnce(Torques(_tau.tolist()))
+                viewer.sync()
+                _dt_left = common_config.dt - (time.time() - _t0)
+                if _dt_left > 0:
+                    time.sleep(_dt_left)
+
+                if abs(_err) < 0.5:
+                    print(f"[SETTLE] Done ({_s + 1} steps). Force = {_F_meas:.2f} N")
+                    break
+            else:
+                print(f"[SETTLE] Timeout. Force = {_F_meas:.2f} N, desired = {_F_des:.2f} N")
+
             robot_state, duration = mujoco_interface.readOnce()
             O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
             target_rot = O_T_EE[:3, :3]
             start_pos = O_T_EE[:3, 3]
-            mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
 
             sim_time = 0.0
             transition_time = 0.0

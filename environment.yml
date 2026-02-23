@@ -1,0 +1,27 @@
+name: mj_ctrl
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+
+  # Numerics
+  - numpy>=1.24
+  - scipy>=1.11
+
+  # Robot dynamics (Pinocchio available on conda-forge)
+  - pinocchio>=2.7
+
+  # Plotting
+  - matplotlib>=3.7
+
+  # PyTorch with CUDA 12.1 — change pytorch-cuda version if your driver differs
+  # (11.8 → pytorch-cuda=11.8, 12.4 → pytorch-cuda=12.4, etc.)
+  - pytorch>=2.1
+  - pytorch-cuda=12.1
+
+  # pip-only packages
+  - pip:
+    - mujoco>=3.1.0
