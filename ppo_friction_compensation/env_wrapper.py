@@ -175,7 +175,7 @@ class HybridControlEnv:
             self.common_config.gravity_compensation = True
             # Keep the trajectory running well beyond episode end so motion
             # continues throughout every episode.
-            self.common_config.motion_duration = 1000.0
+            self.common_config.motion_duration = 10.0
 
         self.hybrid_config   = hybrid_config if hybrid_config is not None else HybridControllerConfig()
         self.approach_config = CartesianSpacePDControlConfig()

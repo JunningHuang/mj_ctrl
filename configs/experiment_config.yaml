@@ -42,7 +42,7 @@ controller:
   gravity_compensation: true
 
   # How long the trajectory runs [s].  Set large to run continuously.
-  motion_duration: 1000.0
+  motion_duration: 10.0
 
   # Surface orientation (roll, pitch, yaw) [rad].
   # Used by HybridController to build the constraint-frame selection matrices
