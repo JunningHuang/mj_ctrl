@@ -180,17 +180,19 @@ class HybridControlEnv:
         self.hybrid_config   = hybrid_config if hybrid_config is not None else HybridControllerConfig()
         self.approach_config = CartesianSpacePDControlConfig()
 
-        # Build a default SinusoidalTrajectory if none was provided
+        # Build a default SinusoidalTrajectory if none was provided.
+        # start_pos and size_z come from common_config so the trajectory is
+        # aligned with the physical slope geometry in the MuJoCo scene.
         if trajectory is not None:
             self._trajectory = trajectory
         else:
             R_slope = euler_to_rot_matrix(self.common_config.euler)
             self._trajectory = SinusoidalTrajectory(
-                start_pos = np.array([0.5038, 0.0108, 0.0857]),
+                start_pos = self.common_config.circle_center.copy(),
                 amplitude = 0.04,
                 frequency = 2.0,
                 R_slope   = R_slope,
-                size_z    = 0.0,
+                size_z    = self.common_config.size_z,
             )
 
         # Near-surface joint configuration (calibrated in run_hybrid_control_mujoco.py)

@@ -83,11 +83,11 @@ def main() -> None:
         hybrid_config = HybridControllerConfig()
         R_slope       = euler_to_rot_matrix(common_config.euler)
         trajectory    = SinusoidalTrajectory(
-            start_pos = np.array([0.5038, 0.0108, 0.0857]),
+            start_pos = common_config.circle_center.copy(),
             amplitude = 0.04,
             frequency = 2.0,
             R_slope   = R_slope,
-            size_z    = 0.0,
+            size_z    = common_config.size_z,
         )
         plot_dir = "plots/sim"
         print("[CONFIG] No config file — using built-in defaults.")

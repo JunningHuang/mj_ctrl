@@ -57,9 +57,10 @@ def build_trajectory(
     """
     Build a Trajectory instance from the 'trajectory' section of the config.
 
-    Only the parameters for the chosen trajectory type are read.
-    ``R_slope`` is derived from ``controller_cfg.euler`` so the controller
-    and the trajectory share the same surface frame.
+    Scene geometry (size_z, circle_center, circle_radius) is always taken from
+    controller_cfg so the trajectory stays aligned with the physical slope in
+    the MuJoCo scene.  Trajectory-specific overrides (start_pos, center, …)
+    can still be set in the YAML trajectory section.
 
     Supported types
     ---------------
@@ -72,28 +73,50 @@ def build_trajectory(
 
     R_slope = _euler_to_rot_matrix(controller_cfg.euler)
 
+    # Scene geometry defaults come from ControllerConfig; the trajectory YAML
+    # section only needs to contain trajectory-specific parameters.
+    size_z        = controller_cfg.size_z
+    circle_center = controller_cfg.circle_center
+    circle_radius = controller_cfg.circle_radius
+
     if traj_type == "sinusoidal":
+        start_pos = np.asarray(
+            traj_raw.get("start_pos", circle_center.tolist()), dtype=float
+        )
         return SinusoidalTrajectory(
-            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
+            start_pos = start_pos,
             amplitude = traj_raw.get("amplitude", 0.04),
             frequency = traj_raw.get("frequency", 2.0),
             R_slope   = R_slope,
-            size_z    = traj_raw.get("size_z", 0.0),
+            size_z    = size_z,
         )
 
     elif traj_type == "circle":
+        center = np.asarray(
+            traj_raw.get("center", circle_center.tolist()), dtype=float
+        )
         return CircleTrajectory(
-            center        = np.asarray(traj_raw["center"], dtype=float),
-            radius        = traj_raw.get("radius", 0.05),
+            center        = center,
+            radius        = traj_raw.get("radius", circle_radius),
             angular_speed = traj_raw.get("angular_speed", np.pi),
             R_slope       = R_slope,
-            size_z        = traj_raw.get("size_z", 0.0),
+            size_z        = size_z,
         )
 
     elif traj_type == "line":
+        start_pos = np.asarray(
+            traj_raw.get("start_pos", circle_center.tolist()), dtype=float
+        )
+        end_pos = np.asarray(
+            traj_raw.get(
+                "end_pos",
+                (circle_center + np.array([circle_radius, 0.0, 0.0])).tolist(),
+            ),
+            dtype=float,
+        )
         return LineTrajectory(
-            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
-            end_pos   = np.asarray(traj_raw["end_pos"],   dtype=float),
+            start_pos = start_pos,
+            end_pos   = end_pos,
             duration  = traj_raw.get("duration", 5.0),
         )
 
