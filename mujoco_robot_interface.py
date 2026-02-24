@@ -75,8 +75,7 @@ class MujocoRobotInterface:
             xml_path,
             common_config.euler,
             common_config.size_z,
-            common_config.circle_radius,
-            common_config.circle_center
+            common_config.slope_pos,
         )
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.opt.timestep = common_config.dt

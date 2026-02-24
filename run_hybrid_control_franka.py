@@ -88,7 +88,7 @@ def main() -> None:
         hybrid_config = HybridControllerConfig()
         R_slope       = euler_to_rot_matrix(common_config.euler)
         trajectory    = SinusoidalTrajectory(
-            start_pos = common_config.circle_center.copy(),
+            start_pos = common_config.slope_pos.copy(),
             amplitude = 0.04,
             frequency = 2.0,
             R_slope   = R_slope,

@@ -37,13 +37,10 @@ class ControllerConfig:
 
     Scene geometry fields
     ---------------------
-    size_z        : Slope thickness / height offset used by add_slope_xml and
-                    as the default height offset for surface trajectories [m].
-    circle_center : World-frame reference point on the slope.  Used by
-                    add_slope_xml AND as the default start_pos / center for
-                    surface trajectories.
-    circle_radius : Slope half-size passed to add_slope_xml AND used as the
-                    default radius / line end-point offset for trajectories [m].
+    size_z    : Slope thickness passed to add_slope_xml; also used as the
+                height offset for surface trajectories [m].
+    slope_pos : World-frame position of the slope body passed to
+                add_slope_xml [m].
 
     Controller fields
     -----------------
@@ -59,10 +56,9 @@ class ControllerConfig:
     use_table           : Whether the scene uses a flat table geometry.
     """
 
-    # Scene geometry (drives both MuJoCo scene setup and trajectory defaults)
-    size_z:        float      = 0.0001
-    circle_center: np.ndarray = None
-    circle_radius: float      = 0.05
+    # Scene geometry (slope body placement in the MuJoCo world)
+    size_z:    float      = 0.0001   # Slope thickness [m]
+    slope_pos: np.ndarray = None     # Slope body position in world frame [m]
 
     # Controller / simulation parameters
     dt:                   float      = 0.001
@@ -73,8 +69,8 @@ class ControllerConfig:
     use_table:            bool       = False
 
     def __post_init__(self) -> None:
-        if self.circle_center is None:
-            self.circle_center = np.array([0.5038, 0.0108, 0.0857])
+        if self.slope_pos is None:
+            self.slope_pos = np.array([0.5038, 0.0108, 0.0857])
         if self.euler is None:
             self.euler = np.array([0.0, 0.0, 0.0])
 
@@ -83,17 +79,17 @@ class ControllerConfig:
         """
         Build a ControllerConfig from a plain dictionary (e.g. from YAML).
 
-        Array-valued fields (circle_center, euler) are accepted as plain lists
+        Array-valued fields (slope_pos, euler) are accepted as plain lists
         and converted to numpy arrays automatically.
         """
         kwargs: Dict[str, Any] = {}
-        for f in ("size_z", "circle_radius",
+        for f in ("size_z",
                   "dt", "gravity_compensation", "motion_duration",
                   "position_tolerance", "use_table"):
             if f in d:
                 kwargs[f] = d[f]
-        if "circle_center" in d:
-            kwargs["circle_center"] = np.asarray(d["circle_center"], dtype=float)
+        if "slope_pos" in d:
+            kwargs["slope_pos"] = np.asarray(d["slope_pos"], dtype=float)
         if "euler" in d:
             kwargs["euler"] = np.asarray(d["euler"], dtype=float)
         return cls(**kwargs)

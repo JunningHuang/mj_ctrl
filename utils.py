@@ -93,7 +93,7 @@ def generate_trajectory_marks(r, size_z, R, body_pos):
     circle_sites += "</sites>\n"
     return circle_sites
 
-def add_slope_xml(xml_path, euler, size_z, r, body_pos):
+def add_slope_xml(xml_path, euler, size_z, body_pos):
     tree = ET.parse(xml_path)
     root = tree.getroot()
     worldbody = root.find("worldbody")
@@ -108,11 +108,6 @@ def add_slope_xml(xml_path, euler, size_z, r, body_pos):
     </body>
     """)
     worldbody.append(slope_body)
-    R = euler_to_rot_matrix(euler)
-    sites_xml = generate_trajectory_marks(r, size_z, R, body_pos)
-    sites_root = ET.fromstring(sites_xml)
-    for site in sites_root:
-        worldbody.append(site)
 
     # WRITE to file for debug
     new_xml_path = Path(xml_path).with_name("table_slope_auto.xml")

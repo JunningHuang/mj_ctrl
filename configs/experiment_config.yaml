@@ -44,11 +44,9 @@ training:
 # ==============================================================================
 controller:
   # -- Scene geometry ---------------------------------------------------------
-  # Physical slope in MuJoCo simulation.  Trajectories default to these values
-  # so the robot motion stays aligned with the simulated slope geometry.
-  size_z:        0.0001                     # Slope thickness / EE height offset [m]
-  circle_center: [0.5038, 0.0108, 0.0857]  # Slope reference point in world frame [m]
-  circle_radius: 0.05                       # Slope half-size [m]
+  # Physical slope in MuJoCo simulation.
+  size_z:    0.0001                     # Slope thickness [m]
+  slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
 
   # -- Surface orientation ----------------------------------------------------
   # Used by HybridController to build constraint-frame selection matrices,
@@ -85,9 +83,9 @@ hybrid_controller:
 
 # ==============================================================================
 # Trajectory
-# Trajectory-specific parameters only.  size_z, circle_center, and
-# circle_radius are read automatically from the controller section above
-# so you do not need to repeat them here.
+# Trajectory-specific parameters only.  size_z is read automatically from
+# the controller section above.  All position parameters (start_pos, center,
+# end_pos) must be set explicitly here.
 #
 # Only fill in the block matching the active type; the others are ignored.
 # ==============================================================================
@@ -95,17 +93,18 @@ trajectory:
   type: "sinusoidal"
 
   # -- Sinusoidal (default) ----------------------------------------------------
-  # start_pos defaults to controller.circle_center if omitted.
+  start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
   frequency: 2.0     # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
-  # angular_speed: 3.14159265   # [rad/s]
-  # center and radius default to controller.circle_center / controller.circle_radius
+  # center:        [0.5038, 0.0108, 0.0857]   # Center position [m]
+  # radius:        0.05                        # [m]
+  # angular_speed: 3.14159265                  # [rad/s]
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
-  # start_pos: [0.5038, 0.0108, 0.0857]   # defaults to controller.circle_center
+  # start_pos: [0.5038, 0.0108, 0.0857]
   # end_pos:   [0.5538, 0.0108, 0.0857]
   # duration:  5.0                          # [s]

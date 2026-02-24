@@ -57,34 +57,29 @@ def build_trajectory(
     """
     Build a Trajectory instance from the 'trajectory' section of the config.
 
-    Scene geometry (size_z, circle_center, circle_radius) is always taken from
-    controller_cfg so the trajectory stays aligned with the physical slope in
-    the MuJoCo scene.  Trajectory-specific overrides (start_pos, center, …)
-    can still be set in the YAML trajectory section.
+    size_z is taken from controller_cfg so the trajectory height is aligned
+    with the physical slope geometry.  All position parameters (start_pos,
+    center, end_pos) must be provided explicitly in the trajectory YAML section.
 
     Supported types
     ---------------
-    "sinusoidal"  →  SinusoidalTrajectory
-    "circle"      →  CircleTrajectory
-    "line"        →  LineTrajectory
+    "sinusoidal"  →  SinusoidalTrajectory  (requires: start_pos)
+    "circle"      →  CircleTrajectory      (requires: center, radius)
+    "line"        →  LineTrajectory        (requires: start_pos, end_pos)
     """
     traj_raw  = raw.get("trajectory", {})
     traj_type = traj_raw.get("type", "sinusoidal")
 
     R_slope = _euler_to_rot_matrix(controller_cfg.euler)
-
-    # Scene geometry defaults come from ControllerConfig; the trajectory YAML
-    # section only needs to contain trajectory-specific parameters.
-    size_z        = controller_cfg.size_z
-    circle_center = controller_cfg.circle_center
-    circle_radius = controller_cfg.circle_radius
+    size_z  = controller_cfg.size_z
 
     if traj_type == "sinusoidal":
-        start_pos = np.asarray(
-            traj_raw.get("start_pos", circle_center.tolist()), dtype=float
-        )
+        if "start_pos" not in traj_raw:
+            raise ValueError(
+                "trajectory.start_pos is required for sinusoidal trajectory"
+            )
         return SinusoidalTrajectory(
-            start_pos = start_pos,
+            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
             amplitude = traj_raw.get("amplitude", 0.04),
             frequency = traj_raw.get("frequency", 2.0),
             R_slope   = R_slope,
@@ -92,31 +87,26 @@ def build_trajectory(
         )
 
     elif traj_type == "circle":
-        center = np.asarray(
-            traj_raw.get("center", circle_center.tolist()), dtype=float
-        )
+        if "center" not in traj_raw:
+            raise ValueError(
+                "trajectory.center is required for circle trajectory"
+            )
         return CircleTrajectory(
-            center        = center,
-            radius        = traj_raw.get("radius", circle_radius),
+            center        = np.asarray(traj_raw["center"], dtype=float),
+            radius        = traj_raw.get("radius", 0.05),
             angular_speed = traj_raw.get("angular_speed", np.pi),
             R_slope       = R_slope,
             size_z        = size_z,
         )
 
     elif traj_type == "line":
-        start_pos = np.asarray(
-            traj_raw.get("start_pos", circle_center.tolist()), dtype=float
-        )
-        end_pos = np.asarray(
-            traj_raw.get(
-                "end_pos",
-                (circle_center + np.array([circle_radius, 0.0, 0.0])).tolist(),
-            ),
-            dtype=float,
-        )
+        if "start_pos" not in traj_raw or "end_pos" not in traj_raw:
+            raise ValueError(
+                "trajectory.start_pos and trajectory.end_pos are required for line trajectory"
+            )
         return LineTrajectory(
-            start_pos = start_pos,
-            end_pos   = end_pos,
+            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
+            end_pos   = np.asarray(traj_raw["end_pos"],   dtype=float),
             duration  = traj_raw.get("duration", 5.0),
         )
 
