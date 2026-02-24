@@ -10,13 +10,12 @@
 #       plots/           ← figures saved during / after training
 #
 # Also provides helpers for loading a unified config YAML and building
-# the ControllerConfig / HybridControllerConfig dataclasses from it.
+# ControllerConfig / HybridControllerConfig / Trajectory from it.
 # ------------------------------------------------------------------------------
-import functools
 import os
 import shutil
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import numpy as np
 import yaml
@@ -24,14 +23,15 @@ import yaml
 from src.controller_config import ControllerConfig
 from src.hybrid_controller import HybridControllerConfig
 from src.trajectories import (
-    generate_circle_trajectory,
-    generate_line_trajectory_delta,
-    generate_sinusoidal_trajectory,
+    Trajectory,
+    SinusoidalTrajectory,
+    CircleTrajectory,
+    LineTrajectory,
 )
 
 
 # ---------------------------------------------------------------------------
-# Config loading
+# Config loading helpers
 # ---------------------------------------------------------------------------
 
 def load_config(path: str) -> Dict[str, Any]:
@@ -50,66 +50,51 @@ def build_hybrid_controller_config(raw: Dict[str, Any]) -> HybridControllerConfi
     return HybridControllerConfig.from_dict(raw.get("hybrid_controller", {}))
 
 
-def build_trajectory_fn(
+def build_trajectory(
     raw: Dict[str, Any],
     controller_cfg: ControllerConfig,
-) -> Callable[[float], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+) -> Trajectory:
     """
-    Build the trajectory callable from the 'trajectory' section of the config.
+    Build a Trajectory instance from the 'trajectory' section of the config.
 
-    The returned function has signature:
-        fn(elapsed_time: float) -> (pos, vel, acc)
+    Only the parameters for the chosen trajectory type are read.
+    ``R_slope`` is derived from ``controller_cfg.euler`` so the controller
+    and the trajectory share the same surface frame.
 
-    The trajectory type is chosen by ``trajectory.type`` (or
-    ``controller.trajectory_type`` as a fallback).  All extra parameters are
-    bound via functools.partial so the caller never has to pass them again.
+    Supported types
+    ---------------
+    "sinusoidal"  →  SinusoidalTrajectory
+    "circle"      →  CircleTrajectory
+    "line"        →  LineTrajectory
     """
     traj_raw  = raw.get("trajectory", {})
-    traj_type = traj_raw.get("type", controller_cfg.trajectory_type)
+    traj_type = traj_raw.get("type", "sinusoidal")
 
     R_slope = _euler_to_rot_matrix(controller_cfg.euler)
 
     if traj_type == "sinusoidal":
-        amplitude = traj_raw.get("amplitude", controller_cfg.sinusoidal_amplitude)
-        frequency = traj_raw.get("frequency", controller_cfg.sinusoidal_frequency)
-        return functools.partial(
-            generate_sinusoidal_trajectory,
-            start_pos=controller_cfg.circle_center,
-            amplitude=amplitude,
-            frequency=frequency,
-            R_slope=R_slope,
-            size_z=controller_cfg.size_z,
+        return SinusoidalTrajectory(
+            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
+            amplitude = traj_raw.get("amplitude", 0.04),
+            frequency = traj_raw.get("frequency", 2.0),
+            R_slope   = R_slope,
+            size_z    = traj_raw.get("size_z", 0.0),
         )
 
     elif traj_type == "circle":
-        return functools.partial(
-            generate_circle_trajectory,
-            circle_center=controller_cfg.circle_center,
-            circle_radius=controller_cfg.circle_radius,
-            angular_speed=controller_cfg.angular_speed,
-            R_slope=R_slope,
-            size_z=controller_cfg.size_z,
+        return CircleTrajectory(
+            center        = np.asarray(traj_raw["center"], dtype=float),
+            radius        = traj_raw.get("radius", 0.05),
+            angular_speed = traj_raw.get("angular_speed", np.pi),
+            R_slope       = R_slope,
+            size_z        = traj_raw.get("size_z", 0.0),
         )
 
     elif traj_type == "line":
-        duration  = traj_raw.get("duration", 5.0)
-        start_pos = np.asarray(
-            traj_raw.get("start_pos", controller_cfg.circle_center.tolist()),
-            dtype=float,
-        )
-        end_pos = np.asarray(
-            traj_raw.get(
-                "end_pos",
-                (controller_cfg.circle_center
-                 + np.array([controller_cfg.circle_radius, 0, 0])).tolist(),
-            ),
-            dtype=float,
-        )
-        return functools.partial(
-            generate_line_trajectory_delta,
-            start_pos=start_pos,
-            end_pos=end_pos,
-            duration=duration,
+        return LineTrajectory(
+            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
+            end_pos   = np.asarray(traj_raw["end_pos"],   dtype=float),
+            duration  = traj_raw.get("duration", 5.0),
         )
 
     else:
@@ -120,7 +105,7 @@ def build_trajectory_fn(
 
 
 def _euler_to_rot_matrix(euler: np.ndarray) -> np.ndarray:
-    """Thin wrapper so experiment_manager has no hard dep on utils_libfranka."""
+    """Thin wrapper to avoid a hard top-level dep on utils_libfranka."""
     from utils_libfranka import euler_to_rot_matrix
     return euler_to_rot_matrix(euler)
 
@@ -144,34 +129,29 @@ class ExperimentManager:
 
     Parameters
     ----------
-    base_dir : str
-        Root experiments directory (default: ``"experiments"``).
-    name : str or None
-        Experiment name.  If None a timestamped name is generated
-        automatically, e.g. ``"run_20240224_153012"``.
-    config_src : str or None
-        Path to the config YAML.  If provided, the file is copied into the
-        experiment folder as ``config.yaml``.
+    base_dir   : Root experiments directory (default: ``"experiments"``).
+    name       : Experiment name.  If None a timestamped name is generated
+                 automatically, e.g. ``"run_20240224_153012"``.
+    config_src : Path to the config YAML.  When provided the file is copied
+                 into the experiment folder as ``config.yaml``.
     """
 
     SUBDIRS = ("checkpoints", "logs", "plots")
 
     def __init__(
         self,
-        base_dir: str = "experiments",
-        name: Optional[str] = None,
+        base_dir:   str           = "experiments",
+        name:       Optional[str] = None,
         config_src: Optional[str] = None,
     ) -> None:
         if name is None:
             name = "run_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.name    = name
-        self.root    = os.path.join(base_dir, name)
+        self.name = name
+        self.root = os.path.join(base_dir, name)
 
-        # Create sub-directories
         for sub in self.SUBDIRS:
             os.makedirs(os.path.join(self.root, sub), exist_ok=True)
 
-        # Copy config
         if config_src is not None:
             shutil.copy2(config_src, os.path.join(self.root, "config.yaml"))
 
@@ -193,19 +173,17 @@ class ExperimentManager:
 
     def checkpoint_prefix(self, tag: str) -> str:
         """
-        Return the full path prefix for a checkpoint, e.g.
+        Full path prefix for a checkpoint file, e.g.
         ``experiments/run_XX/checkpoints/epoch_0010``.
-        Pass this prefix to ``agent.save(prefix)`` and
-        ``normalizer.save(prefix + '_normalizer.npz')``.
         """
         return os.path.join(self.checkpoints_dir, tag)
 
     def log_path(self, filename: str) -> str:
-        """Return the full path for a log file inside the logs/ sub-dir."""
+        """Full path for a log file inside logs/."""
         return os.path.join(self.logs_dir, filename)
 
     def plot_path(self, filename: str) -> str:
-        """Return the full path for a plot inside the plots/ sub-dir."""
+        """Full path for a plot inside plots/."""
         return os.path.join(self.plots_dir, filename)
 
     def __repr__(self) -> str:

@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------------------
 import numpy as np
 import pinocchio as pino
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation
 
@@ -17,20 +17,21 @@ from utils_libfranka import (
     null_space_tau,
     euler_to_rot_matrix,
     dynamically_consistent_inv,
-    feedforward_PD
+    feedforward_PD,
 )
 from src.controller_config import ControllerConfig
+from src.trajectories import Trajectory
 
 
 @dataclass
 class HybridControllerConfig:
     """Configuration for hybrid force-impedance controller."""
     # Impedance control gains
-    Kpos: float = 0.95  # Position error gain
-    Kori: float = 0.95  # Orientation error gain
+    Kpos: float = 0.95
+    Kori: float = 0.95
     damping_ratio: float = 1.0
-    Kp: np.ndarray = None       # Task space proportional gain (derived)
-    Kd: np.ndarray = None       # Task space derivative gain (derived)
+    Kp: np.ndarray = None       # Task-space proportional gain (derived)
+    Kd: np.ndarray = None       # Task-space derivative gain (derived)
     Kp_null: np.ndarray = None
     Kd_null: np.ndarray = None  # Derived from Kp_null
     impedance_pos: np.ndarray = None
@@ -68,76 +69,57 @@ class HybridControllerConfig:
         """
         Build a HybridControllerConfig from a plain dictionary (e.g. from YAML).
 
-        Derived arrays (Kp, Kd, Kd_null) are intentionally NOT read from the
-        dict — they are always computed in __post_init__ from the primary inputs
-        (impedance_pos, impedance_ori, Kp_null, damping_ratio).
+        Derived arrays (Kp, Kd, Kd_null) are never read from the dict — they
+        are always recomputed in __post_init__ from the primary inputs.
         """
         kwargs: Dict[str, Any] = {}
-        for field in (
-            "Kpos", "Kori", "damping_ratio",
-            "Kp_force", "Kd_force", "Ki_force",
-            "max_delta_tau",
-        ):
-            if field in d:
-                kwargs[field] = d[field]
-
-        # Array fields
-        for field in ("impedance_pos", "impedance_ori", "Kp_null"):
-            if field in d:
-                kwargs[field] = np.asarray(d[field], dtype=float)
+        for f in ("Kpos", "Kori", "damping_ratio",
+                  "Kp_force", "Kd_force", "Ki_force", "max_delta_tau"):
+            if f in d:
+                kwargs[f] = d[f]
+        for f in ("impedance_pos", "impedance_ori", "Kp_null"):
+            if f in d:
+                kwargs[f] = np.asarray(d[f], dtype=float)
         if "F_desired_contact" in d:
             kwargs["F_desired_contact"] = np.asarray(d["F_desired_contact"], dtype=float)
-
         return cls(**kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Trajectory function type alias
-# ---------------------------------------------------------------------------
-# A trajectory callable must have the signature:
-#   fn(elapsed_time: float) -> (target_pos, x_dot_desired, x_ddot_desired)
-# where all three outputs are np.ndarray of shape (3,).
-# Use functools.partial (or a lambda) to bind trajectory-specific parameters
-# before passing the callable to HybridController.
-TrajectoryFn = Callable[[float], Tuple[np.ndarray, np.ndarray, np.ndarray]]
 
 
 class HybridController:
     """
     Controller for movements on a surface with hybrid force/motion control.
 
-    Uses hybrid force/motion control:
     - Force control in normal direction (constraint space)
     - Motion control in tangential directions (motion space)
 
-    The trajectory is fully decoupled from the controller: pass any callable
-    with signature  fn(elapsed_time) -> (pos, vel, acc)  via the
-    ``trajectory_fn`` argument.  Use ``functools.partial`` to bind
-    trajectory-specific parameters (radius, amplitude, …) before passing.
+    The trajectory is fully decoupled from the controller.  Pass any
+    ``Trajectory`` instance (see src/trajectories.py) via the ``trajectory``
+    argument.  The instance is called as  trajectory(elapsed_time)  on every
+    update step, so it behaves exactly like a bound lambda f(t).
     """
 
     def __init__(
         self,
         config: HybridControllerConfig,
         common_config: ControllerConfig,
-        trajectory_fn: TrajectoryFn,
+        trajectory: Trajectory,
         n_joints: int = 7,
         ee_frame_name: str = "attachment",
     ):
         """
-        Initialize hybrid controller.
-
         Args:
             config:        Hybrid controller configuration.
-            common_config: Shared configuration parameters.
-            trajectory_fn: Callable(elapsed_time) → (pos, vel, acc).
-                           Bind any extra parameters with functools.partial.
+            common_config: Shared configuration (dt, euler, motion_duration, …).
+            trajectory:    A Trajectory instance, called as trajectory(elapsed_time).
+                           Instantiate the desired subclass (SinusoidalTrajectory,
+                           CircleTrajectory, LineTrajectory, …) with its own
+                           parameters before passing it here.
             n_joints:      Number of robot joints.
             ee_frame_name: End-effector frame name in the Pinocchio model.
         """
         self.config        = config
         self.common_config = common_config
-        self.trajectory_fn = trajectory_fn
+        self.trajectory    = trajectory
         self.n_joints      = n_joints
         self.ee_frame_name = ee_frame_name
 
@@ -152,9 +134,9 @@ class HybridController:
         self.S_vc[4, 3] = 1  # ry rotation
         self.S_vc[5, 4] = 1  # rz rotation
 
-        # Constraint geometry
-        self.R_slope   = euler_to_rot_matrix(self.common_config.euler)
-        rot_slope      = Rotation.from_euler('xyz', self.common_config.euler)
+        # Constraint geometry (from shared euler angles)
+        self.R_slope    = euler_to_rot_matrix(self.common_config.euler)
+        rot_slope       = Rotation.from_euler('xyz', self.common_config.euler)
         self.quat_slope = np.roll(rot_slope.as_quat(), 1)
 
         self.R = np.zeros((6, 6))
@@ -168,11 +150,11 @@ class HybridController:
         self.pino_data:  Optional[pino.Data]  = None
 
         # Trajectory state
-        self.target_pos:        Optional[np.ndarray] = None
-        self.target_rot:        Optional[np.ndarray] = None
-        self.x_dot_desired:     Optional[np.ndarray] = np.zeros(3)
-        self.x_ddot_desired:    Optional[np.ndarray] = np.zeros(3)
-        self.q0:                Optional[np.ndarray] = None
+        self.target_pos:     Optional[np.ndarray] = None
+        self.target_rot:     Optional[np.ndarray] = None
+        self.x_dot_desired:  np.ndarray           = np.zeros(3)
+        self.x_ddot_desired: np.ndarray           = np.zeros(3)
+        self.q0:             Optional[np.ndarray] = None
 
         # Motion state
         self.start_time: float = 0.0
@@ -182,19 +164,19 @@ class HybridController:
         self.tau = np.zeros(n_joints)
 
         # Data logging
-        self.contact_forces:                  list = []
-        self.desired_forces:                  list = []
-        self.ee_positions:                    list = []
-        self.target_positions:                list = []
-        self.control_force_compensation_arr:  list = []
-        self.contact_force_compensation_arr:  list = []
-        self.velocity_term_arr:               list = []
-        self.F_ctrl_constraint_arr:           list = []
-        self.joint_torques:                   list = []
-        self.joint_g_torques:                 list = []
-        self.tau_ctrl_phi_log:                list = []
-        self.tau_ctrl_x_log:                  list = []
-        self.tau_ctrl_v_log:                  list = []
+        self.contact_forces:                 list = []
+        self.desired_forces:                 list = []
+        self.ee_positions:                   list = []
+        self.target_positions:               list = []
+        self.control_force_compensation_arr: list = []
+        self.contact_force_compensation_arr: list = []
+        self.velocity_term_arr:              list = []
+        self.F_ctrl_constraint_arr:          list = []
+        self.joint_torques:                  list = []
+        self.joint_g_torques:                list = []
+        self.tau_ctrl_phi_log:               list = []
+        self.tau_ctrl_x_log:                 list = []
+        self.tau_ctrl_v_log:                 list = []
 
     def starting(
         self,
@@ -209,23 +191,17 @@ class HybridController:
 
         Args:
             current_time: Current simulation time.
-            target_rot:   Target orientation matrix.
+            target_rot:   Target orientation matrix (3×3).
             q0:           Home joint configuration.
             pino_model:   Pinocchio model.
             pino_data:    Pinocchio data.
         """
         self.pino_model = pino_model
         self.pino_data  = pino_data
-
         self.start_time = current_time
         self.is_drawing = True
         self.target_rot = target_rot.copy()
         self.q0         = q0.copy()
-        self.start_pos  = self.common_config.circle_center
-        self.end_pos    = (
-            self.common_config.circle_center
-            + np.array([self.common_config.circle_radius, 0, 0])
-        )
 
         # Cache frame ID to avoid string lookup every iteration
         self.pino_frame_id = self.pino_model.getFrameId(self.ee_frame_name)
@@ -248,15 +224,13 @@ class HybridController:
         self.tau[:] = 0.0
 
         print(f"[HYBRID START] Surface motion started at t={current_time:.2f}s")
-        print(f"[HYBRID START] Center: {self.common_config.circle_center}")
-        print(f"[HYBRID START] Radius: {self.common_config.circle_radius}")
-        print(f"[HYBRID START] Force control: F_desired={self.config.F_desired_contact}")
-        print(f"[HYBRID START] start pos: {self.start_pos}")
-        print(f"[HYBRID START] end pos:   {self.end_pos}")
+        print(f"[HYBRID START] Trajectory: {type(self.trajectory).__name__}")
+        print(f"[HYBRID START] Motion duration: {self.common_config.motion_duration}s")
+        print(f"[HYBRID START] Force target: F_desired={self.config.F_desired_contact}")
 
     def update(self, current_time: float, robot_state) -> np.ndarray:
         """
-        Compute control torques for surface motion with hybrid force/motion control.
+        Compute control torques for surface motion.
 
         Args:
             current_time: Current simulation time.
@@ -266,13 +240,13 @@ class HybridController:
             Control torques (n_joints,).
         """
         # ============================================================
-        # 1. Update Trajectory via injected trajectory function
+        # 1. Update Trajectory
         # ============================================================
         elapsed = current_time - self.start_time
 
-        if elapsed < self.common_config.circle_duration:
+        if elapsed < self.common_config.motion_duration:
             self.target_pos, self.x_dot_desired, self.x_ddot_desired = \
-                self.trajectory_fn(elapsed)
+                self.trajectory(elapsed)
         else:
             self.x_dot_desired[:]  = 0.0
             self.x_ddot_desired[:] = 0.0
@@ -293,16 +267,16 @@ class HybridController:
         pino.forwardKinematics(self.pino_model, self.pino_data, q, dq)
         pino.computeJointJacobians(self.pino_model, self.pino_data)
         pino.updateFramePlacements(self.pino_model, self.pino_data)
-        jac   = pino.getFrameJacobian(
+        jac = pino.getFrameJacobian(
             self.pino_model, self.pino_data,
-            self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED
+            self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED,
         )
         M     = pino.crba(self.pino_model, self.pino_data, q)
         M_inv = pino.computeMinverse(self.pino_model, self.pino_data, q)
 
-        J_phi   = self.S_f.T @ jac
+        J_phi    = self.S_f.T @ jac
         J_motion = self.S_v.T @ jac
-        jac_1   = np.vstack([J_phi, J_motion])
+        jac_1    = np.vstack([J_phi, J_motion])
 
         Mx_constraint = task_space_inertiaM(M_inv, J_phi)
         Mx_motion     = task_space_inertiaM(M_inv, J_motion)
@@ -310,7 +284,7 @@ class HybridController:
         # ============================================================
         # 3. Get Contact Information
         # ============================================================
-        F_ext_world       = np.array(robot_state.O_F_ext_hat_K)
+        F_ext_world         = np.array(robot_state.O_F_ext_hat_K)
         current_force_local = F_ext_world
         F_ext_phi = current_force_local @ self.S_fc
         F_ext_x   = current_force_local @ self.S_vc
@@ -318,8 +292,8 @@ class HybridController:
         # ============================================================
         # 4. Null Space torque
         # ============================================================
-        jac_1_inv = dynamically_consistent_inv(jac_1, M_inv)
-        N2        = np.eye(self.n_joints) - jac_1.T @ jac_1_inv.T
+        jac_1_inv  = dynamically_consistent_inv(jac_1, M_inv)
+        N2         = np.eye(self.n_joints) - jac_1.T @ jac_1_inv.T
         tau_ctrl_v = null_space_tau(q, dq, self.q0, self.config.Kp_null, self.config.Kd_null)
         tau_ctrl_v = N2 @ tau_ctrl_v
 
@@ -327,22 +301,19 @@ class HybridController:
         # 5. Motion Space Control
         # ============================================================
         twist = compute_ee_pose_error(
-            self.target_pos,
-            current_pos,
-            self.target_rot,
-            current_mat.flatten()
+            self.target_pos, current_pos, self.target_rot, current_mat.flatten()
         )
 
         x_ddot_desired_sel = np.concatenate([self.x_ddot_desired, [0, 0, 0]]) @ self.S_v
         x_tilde            = twist @ self.S_v
-        site_vel           = jac @ dq   # [vx, vy, vz, wx, wy, wz]
+        site_vel           = jac @ dq
         x_dot_tilde = (np.concatenate([self.x_dot_desired, [0, 0, 0]]) - site_vel) @ self.S_v
         a_motion = feedforward_PD(
             x_acc_desired=x_ddot_desired_sel,
             x_delta=x_tilde,
             x_dot_delta=x_dot_tilde,
             Kp=self.config.Kp @ self.S_v,
-            Kd=self.config.Kd @ self.S_v
+            Kd=self.config.Kd @ self.S_v,
         )
         F_ctrl_x   = Mx_motion @ a_motion
         tau_ctrl_x = J_motion.T @ F_ctrl_x
@@ -353,21 +324,15 @@ class HybridController:
         C     = pino.computeCoriolisMatrix(self.pino_model, self.pino_data, q, dq)
         J_dot = pino.getFrameJacobianTimeVariation(
             self.pino_model, self.pino_data,
-            self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED
+            self.pino_frame_id, pino.LOCAL_WORLD_ALIGNED,
         )
         J_phi_dot = self.S_f.T @ J_dot
 
-        F_ext_x_new         = F_ext_x.copy()
-        F_ext_x_new[-3:]    = 0
-        control_force_compensation = (
-            1 * (-Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-        )
-        contact_force_compensation = (
-            1 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-        )
-        velocity_term = (
-            1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ dq
-        )
+        F_ext_x_new      = F_ext_x.copy()
+        F_ext_x_new[-3:] = 0
+        control_force_compensation = -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v)
+        contact_force_compensation =  Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new)
+        velocity_term              =  Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ dq
         F_ctrl_constraint = (
             self.config.F_desired_contact
             + control_force_compensation
@@ -381,7 +346,6 @@ class HybridController:
         # ============================================================
         self.tau[:] = tau_ctrl_phi + tau_ctrl_x + tau_ctrl_v
 
-        # Store for logging
         self._last_control_compensation = control_force_compensation
         self._last_contact_compensation = contact_force_compensation
         self._last_velocity_term        = velocity_term
@@ -398,8 +362,9 @@ class HybridController:
         # 8b. Torque Rate Limiting
         # ============================================================
         last_command_tau = np.array(robot_state.tau_J_d)
-        delta_tau        = self.tau - last_command_tau
-        delta_tau        = np.clip(delta_tau, -self.config.max_delta_tau, self.config.max_delta_tau)
+        delta_tau        = np.clip(self.tau - last_command_tau,
+                                   -self.config.max_delta_tau,
+                                    self.config.max_delta_tau)
         self.tau[:]      = last_command_tau + delta_tau
 
         # ============================================================
@@ -431,17 +396,18 @@ class HybridController:
             self.F_ctrl_constraint_arr.append(np.zeros(1))
 
     def is_finished(self) -> bool:
-        """Check if surface motion is finished."""
+        """Return True once the motion duration has elapsed."""
         return not self.is_drawing
 
     def is_target_reached(self, robot_state) -> bool:
         """
-        Check if end-effector has reached target position.
-
-        Returns:
-            True if within tolerance.
+        Return True if the EE is within position_tolerance of the trajectory's
+        end_pos.  Only meaningful for LineTrajectory (which has an end_pos
+        field); returns False for other trajectory types.
         """
+        end_pos = getattr(self.trajectory, 'end_pos', None)
+        if end_pos is None:
+            return False
         O_T_EE      = np.array(robot_state.O_T_EE).reshape(4, 4).T
         current_pos = O_T_EE[:3, 3]
-        distance    = np.linalg.norm(current_pos - self.end_pos)
-        return distance < self.common_config.position_tolerance
+        return np.linalg.norm(current_pos - end_pos) < self.common_config.position_tolerance

@@ -2,15 +2,14 @@
 # Unified Experiment Configuration
 # ==============================================================================
 # This file is the single source of truth for one training run.
-# Edit the values here; the training script, ControllerConfig, and
-# HybridControllerConfig all read from this file.
+# Edit values here; the training script, ControllerConfig, HybridControllerConfig,
+# and the Trajectory are all built from this file.
 #
 # Usage:
 #   python -m ppo_friction_compensation.train_ppo --config configs/experiment_config.yaml
 # ==============================================================================
 
-# Optional human-readable label for this experiment.
-# If omitted, a timestamped name is generated automatically.
+# Optional human-readable label.  If null, a timestamped name is generated.
 experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 
 # Root directory under which the experiment folder is created.
@@ -36,75 +35,69 @@ training:
 
 # ==============================================================================
 # ControllerConfig
-# Shared parameters used by the hybrid controller and the environment.
+# Contains only controller-level parameters — no trajectory geometry.
 # ==============================================================================
 controller:
   dt:                   0.001   # Timestep [s] (used for plotting only)
   gravity_compensation: true
 
-  # Trajectory / motion parameters
-  circle_center:    [0.5038, 0.0108, 0.0857]  # World-frame reference point [m]
-  circle_radius:    0.05    # Used for circle trajectory and as line end-point offset [m]
-  circle_duration:  1000.0  # Motion runs until this elapsed time [s]; set large to run continuously
-  angular_speed:    3.14159265  # [rad/s] — used by circle trajectory
+  # How long the trajectory runs [s].  Set large to run continuously.
+  motion_duration: 1000.0
 
-  # Active trajectory type: "sinusoidal" | "circle" | "line"
-  trajectory_type:        "sinusoidal"
-  sinusoidal_amplitude:   0.04   # Half-amplitude [m] (total swing = 2×amplitude)
-  sinusoidal_frequency:   2.0    # [Hz]
+  # Surface orientation (roll, pitch, yaw) [rad].
+  # Used by HybridController to build the constraint-frame selection matrices
+  # AND passed to build_trajectory to compute R_slope for surface trajectories.
+  euler: [0.0, 0.0, 0.0]
 
-  # Contact detection
-  position_tolerance: 0.01   # [m]
+  # Distance threshold for is_target_reached() [m].
+  position_tolerance: 0.01
 
-  # Constraint / surface geometry
-  euler:     [0.0, 0.0, 0.0]  # Surface orientation as roll-pitch-yaw [rad]
-  size_z:    0.0001            # Height offset on the surface [m]
   use_table: false
 
 # ==============================================================================
 # HybridControllerConfig
 # Force-impedance controller gains.
-# NOTE: Kp, Kd, and Kd_null are derived automatically from the values below
-#       and are therefore intentionally absent from this file.
+# Kp, Kd, and Kd_null are derived automatically and are absent from this file.
 # ==============================================================================
 hybrid_controller:
-  Kpos:          0.95   # Position error scale factor
-  Kori:          0.95   # Orientation error scale factor
-  damping_ratio: 1.0    # Damping ratio for all derived Kd terms
+  Kpos:          0.95
+  Kori:          0.95
+  damping_ratio: 1.0
 
-  # Cartesian impedance stiffness
-  impedance_pos: [100.0, 100.0, 100.0]   # Translational [N/m]
-  impedance_ori: [50.0,  50.0,  50.0]    # Rotational [Nm/rad]
+  impedance_pos: [100.0, 100.0, 100.0]   # Translational stiffness [N/m]
+  impedance_ori: [50.0,  50.0,  50.0]    # Rotational stiffness [Nm/rad]
+  Kp_null:       [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
 
-  # Nullspace joint stiffness
-  Kp_null: [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
-
-  # Force control gains
   Kp_force: 0.4
   Kd_force: 0.002
   Ki_force: 0.4
 
-  F_desired_contact: [-8.0]   # Desired normal contact force [N]; negative = push into surface
+  F_desired_contact: [-8.0]   # Desired normal force [N]; negative = push into surface
   max_delta_tau:     1.0      # Max torque change per timestep [Nm]
 
 # ==============================================================================
-# Trajectory overrides
-# Fine-grained parameters for the chosen trajectory type.
-# Values here take precedence over the matching controller fields above.
-# Only the fields relevant to the active trajectory_type need to be set.
+# Trajectory
+# Only the parameters for the active type need to be set.
+# Switch type to "circle" or "line" and fill in the matching block.
 # ==============================================================================
 trajectory:
-  # type overrides controller.trajectory_type if set
   type: "sinusoidal"
 
-  # -- Sinusoidal --
-  amplitude:  0.04   # [m]
-  frequency:  2.0    # [Hz]
+  # -- Sinusoidal ----------------------------------------------------------
+  start_pos: [0.5038, 0.0108, 0.0857]  # World-frame centre of oscillation
+  amplitude: 0.04                       # Half-amplitude [m]
+  frequency: 2.0                        # [Hz]
+  size_z:    0.0                        # Height offset on surface [m]
 
-  # -- Circle --
-  # (uses circle_center, circle_radius, angular_speed from controller section)
+  # -- Circle --------------------------------------------------------------
+  # type: "circle"
+  # center:        [0.5038, 0.0108, 0.0857]
+  # radius:        0.05
+  # angular_speed: 3.14159265
+  # size_z:        0.0
 
-  # -- Line --
-  # start_pos: [0.5038, 0.0108, 0.0857]   # defaults to circle_center
-  # end_pos:   [0.5538, 0.0108, 0.0857]   # defaults to circle_center + [radius, 0, 0]
-  duration:   5.0    # [s] — only used for "line" trajectory
+  # -- Line (minimum-jerk) -------------------------------------------------
+  # type: "line"
+  # start_pos: [0.5038, 0.0108, 0.0857]
+  # end_pos:   [0.5538, 0.0108, 0.0857]
+  # duration:  5.0                        # Total trajectory time [s]

@@ -8,15 +8,12 @@ from src.cartesian_space_pd_controller import (
     CartesianSpacePDController,
     CartesianSpacePDControlConfig,
 )
-from src.hybrid_controller import (
-    HybridController,
-    HybridControllerConfig,
-    TrajectoryFn,
-)
+from src.hybrid_controller import HybridController, HybridControllerConfig
 from src.trajectories import (
-    generate_circle_trajectory,
-    generate_line_trajectory_delta,
-    generate_sinusoidal_trajectory,
+    Trajectory,
+    SinusoidalTrajectory,
+    CircleTrajectory,
+    LineTrajectory,
 )
 from src.robot_configs import (
     RobotConfig,
@@ -37,11 +34,11 @@ __all__ = [
     # Hybrid Controller
     "HybridController",
     "HybridControllerConfig",
-    "TrajectoryFn",
-    # Trajectory generators
-    "generate_circle_trajectory",
-    "generate_line_trajectory_delta",
-    "generate_sinusoidal_trajectory",
+    # Trajectory base + concrete types
+    "Trajectory",
+    "SinusoidalTrajectory",
+    "CircleTrajectory",
+    "LineTrajectory",
     # Robot configs
     "RobotConfig",
     "FR3_CONFIG",

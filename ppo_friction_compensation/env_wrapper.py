@@ -30,7 +30,7 @@ Episode terminates if |force_error| > 100 N  or  sim_time ≥ 10 s.
 
 import os
 import sys
-from typing import Callable, Optional, Tuple
+from typing import Optional
 
 # Make the repo root importable regardless of the working directory.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,10 +48,10 @@ from src import (
     ControllerConfig,
     HybridController,
     HybridControllerConfig,
-    TrajectoryFn,
+    SinusoidalTrajectory,
+    Trajectory,
     get_robot_config,
 )
-from src.experiment_manager import build_trajectory_fn
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 
 
@@ -131,9 +131,9 @@ class HybridControlEnv:
         Shared controller config.  If None a default is constructed.
     hybrid_config : HybridControllerConfig or None
         Hybrid controller config.  If None a default is constructed.
-    trajectory_fn : TrajectoryFn or None
-        Callable(elapsed_time) → (pos, vel, acc).  If None a default
-        sinusoidal trajectory is built from common_config.
+    trajectory : Trajectory or None
+        A Trajectory instance (SinusoidalTrajectory, CircleTrajectory, …).
+        If None a default SinusoidalTrajectory is constructed.
     """
 
     OBS_DIM = 18
@@ -150,7 +150,7 @@ class HybridControlEnv:
         approach_contact_thresh: float = 1.0,
         common_config: Optional[ControllerConfig] = None,
         hybrid_config: Optional[HybridControllerConfig] = None,
-        trajectory_fn: Optional[TrajectoryFn] = None,
+        trajectory:    Optional[Trajectory] = None,
     ) -> None:
 
         self.action_repeat           = action_repeat
@@ -173,27 +173,24 @@ class HybridControlEnv:
         else:
             self.common_config = ControllerConfig()
             self.common_config.gravity_compensation = True
-            # Keep the trajectory generator running well beyond episode end so
-            # the sinusoidal motion continues throughout every episode.
-            self.common_config.circle_duration = 1000.0
+            # Keep the trajectory running well beyond episode end so motion
+            # continues throughout every episode.
+            self.common_config.motion_duration = 1000.0
 
-        self.hybrid_config   = hybrid_config  if hybrid_config  is not None else HybridControllerConfig()
+        self.hybrid_config   = hybrid_config if hybrid_config is not None else HybridControllerConfig()
         self.approach_config = CartesianSpacePDControlConfig()
 
-        # Build a default trajectory_fn if none was provided
-        if trajectory_fn is not None:
-            self._trajectory_fn = trajectory_fn
+        # Build a default SinusoidalTrajectory if none was provided
+        if trajectory is not None:
+            self._trajectory = trajectory
         else:
-            import functools
-            from src.trajectories import generate_sinusoidal_trajectory
             R_slope = euler_to_rot_matrix(self.common_config.euler)
-            self._trajectory_fn = functools.partial(
-                generate_sinusoidal_trajectory,
-                start_pos=self.common_config.circle_center,
-                amplitude=self.common_config.sinusoidal_amplitude,
-                frequency=self.common_config.sinusoidal_frequency,
-                R_slope=R_slope,
-                size_z=self.common_config.size_z,
+            self._trajectory = SinusoidalTrajectory(
+                start_pos = np.array([0.5038, 0.0108, 0.0857]),
+                amplitude = 0.04,
+                frequency = 2.0,
+                R_slope   = R_slope,
+                size_z    = 0.0,
             )
 
         # Near-surface joint configuration (calibrated in run_hybrid_control_mujoco.py)
@@ -229,7 +226,7 @@ class HybridControlEnv:
         self.hybrid_controller = HybridController(
             self.hybrid_config,
             self.common_config,
-            self._trajectory_fn,
+            self._trajectory,
             n_joints=self.robot_cfg.n_joints,
             ee_frame_name=self.robot_cfg.ee_frame_name,
         )

@@ -45,7 +45,7 @@ from src.experiment_manager import (
     ExperimentManager,
     build_controller_config,
     build_hybrid_controller_config,
-    build_trajectory_fn,
+    build_trajectory,
     load_config,
 )
 
@@ -82,7 +82,7 @@ def train(
     seed:            int   = 0,
     common_config=None,
     hybrid_config=None,
-    trajectory_fn=None,
+    trajectory=None,
 ) -> None:
     """
     Run PPO training.
@@ -104,7 +104,7 @@ def train(
         Passed through to HybridControlEnv.
     hybrid_config : HybridControllerConfig or None
         Passed through to HybridControlEnv.
-    trajectory_fn : callable or None
+    trajectory : Trajectory or None
         Passed through to HybridControlEnv.
     """
     _set_seed(seed)
@@ -124,7 +124,7 @@ def train(
         robot_type=robot_type,
         common_config=common_config,
         hybrid_config=hybrid_config,
-        trajectory_fn=trajectory_fn,
+        trajectory=trajectory,
     )
 
     # ---- Agent + buffer -----------------------------------------------------
@@ -306,9 +306,9 @@ if __name__ == "__main__":
         raw             = load_config(args.config)
         training_cfg    = raw.get("training", {})
 
-        common_config   = build_controller_config(raw)
-        hybrid_config   = build_hybrid_controller_config(raw)
-        trajectory_fn   = build_trajectory_fn(raw, common_config)
+        common_config = build_controller_config(raw)
+        hybrid_config = build_hybrid_controller_config(raw)
+        trajectory    = build_trajectory(raw, common_config)
 
         exp_name        = raw.get("experiment_name") or None
         base_dir        = raw.get("experiments_base_dir", "experiments")
@@ -334,9 +334,9 @@ if __name__ == "__main__":
             save_every      = training_cfg.get("save_every",      10),
             seed            = training_cfg.get("seed",            0),
             experiment_manager = exp_manager,
-            common_config   = common_config,
-            hybrid_config   = hybrid_config,
-            trajectory_fn   = trajectory_fn,
+            common_config = common_config,
+            hybrid_config = hybrid_config,
+            trajectory    = trajectory,
         )
 
     else:

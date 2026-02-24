@@ -1,6 +1,11 @@
 # ------------------------------------------------------------------------------
 # General Controller Configuration
-# Shared configuration parameters for all robot controllers
+# Shared configuration parameters for all robot controllers.
+#
+# Trajectory-specific parameters (amplitude, radius, start_pos, …) do NOT
+# live here.  They belong exclusively to the Trajectory subclass being used,
+# so loading a config never pulls in parameters for trajectories you are not
+# running.  See src/trajectories.py.
 # ------------------------------------------------------------------------------
 import numpy as np
 from dataclasses import dataclass
@@ -10,66 +15,54 @@ from typing import Any, Dict
 
 class ControlPhase(Enum):
     """Control phase state machine."""
-    APPROACHING = 1
+    APPROACHING    = 1
     CIRCLE_DRAWING = 2
-    STOPPED = 3
+    STOPPED        = 3
 
 
 @dataclass
 class ControllerConfig:
-    """Configuration parameters shared across all controllers."""
-    # Simulation parameters
-    dt: float = 0.001  # only for result plotting
-    gravity_compensation: bool = False
+    """
+    Parameters shared across all controllers.
 
-    # Motion / trajectory parameters
-    circle_center: np.ndarray = None
-    circle_radius: float = 0.05
-    circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    Fields
+    ------
+    dt                  : Timestep [s] — used for result plotting only.
+    gravity_compensation: Enable gravity compensation torque.
+    motion_duration     : How long the trajectory runs before the controller
+                          stops [s].  Set large (e.g. 1000) to run continuously.
+    position_tolerance  : Distance threshold for is_target_reached() [m].
+    euler               : Surface orientation as (roll, pitch, yaw) [rad].
+                          Used to build the constraint-frame rotation matrix
+                          inside HybridController AND to compute R_slope for
+                          surface trajectories.
+    use_table           : Whether the scene uses a flat table geometry.
+    """
 
-    # Sinusoidal trajectory parameters
-    trajectory_type: str = "sinusoidal"  # "sinusoidal" | "circle" | "line"
-    sinusoidal_amplitude: float = 0.04   # half-amplitude [m]
-    sinusoidal_frequency: float = 2.0    # [Hz]
+    dt:                   float        = 0.001
+    gravity_compensation: bool         = False
+    motion_duration:      float        = 10.0
+    position_tolerance:   float        = 0.01
+    euler:                np.ndarray   = None
+    use_table:            bool         = False
 
-    # Contact detection thresholds
-    position_tolerance: float = 0.01  # 1 cm tolerance for reaching target
-
-    # Constraint geometry
-    euler: np.ndarray = None
-    size_z: float = 0.0001
-    use_table: bool = False
-
-    def __post_init__(self):
-        """Set default values for array parameters."""
-        if self.circle_center is None:
-            self.circle_center = np.array([0.5038, 0.0108, 0.0857])
+    def __post_init__(self) -> None:
         if self.euler is None:
-            self.euler = np.array([np.deg2rad(0), 0, 0])
+            self.euler = np.array([0.0, 0.0, 0.0])
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ControllerConfig":
         """
         Build a ControllerConfig from a plain dictionary (e.g. from YAML).
 
-        Array-valued fields (circle_center, euler) are accepted as plain lists
-        and converted to numpy arrays automatically.
+        The ``euler`` field is accepted as a plain list and converted to a
+        numpy array automatically.
         """
         kwargs: Dict[str, Any] = {}
-        for field in (
-            "dt", "gravity_compensation",
-            "circle_radius", "circle_duration", "angular_speed",
-            "trajectory_type", "sinusoidal_amplitude", "sinusoidal_frequency",
-            "position_tolerance", "size_z", "use_table",
-        ):
-            if field in d:
-                kwargs[field] = d[field]
-
-        # Array fields
-        if "circle_center" in d:
-            kwargs["circle_center"] = np.asarray(d["circle_center"], dtype=float)
+        for f in ("dt", "gravity_compensation", "motion_duration",
+                  "position_tolerance", "use_table"):
+            if f in d:
+                kwargs[f] = d[f]
         if "euler" in d:
             kwargs["euler"] = np.asarray(d["euler"], dtype=float)
-
         return cls(**kwargs)

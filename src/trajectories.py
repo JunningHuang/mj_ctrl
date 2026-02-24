@@ -1,141 +1,186 @@
 # ------------------------------------------------------------------------------
-# Trajectory Generators
-# Pure functions that return (target_pos, x_dot_desired, x_ddot_desired).
-# Each function takes `elapsed_time: float` plus trajectory-specific parameters.
-# Use functools.partial to bind the extra parameters and obtain a callable with
-# the signature  fn(elapsed_time) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
-# that can be passed directly to HybridController.
+# Trajectory Classes
+#
+# Design
+# ------
+# - `Trajectory` is an abstract base class.  Each subclass is a dataclass that
+#   owns exactly the parameters it needs — nothing more.
+# - Every instance is callable:  traj(elapsed_time) -> (pos, vel, acc)
+#   so it works like a bound lambda of one variable.
+# - `R_slope` is accepted as a constructor argument on surface trajectories.
+#   Compute it once from `euler_to_rot_matrix(controller_config.euler)` and
+#   pass it in; the controller and the trajectory share the same surface frame.
+#
+# Usage example
+# -------------
+#   from utils_libfranka import euler_to_rot_matrix
+#   from src.trajectories import SinusoidalTrajectory
+#
+#   R = euler_to_rot_matrix(common_config.euler)
+#   traj = SinusoidalTrajectory(
+#       start_pos=np.array([0.50, 0.01, 0.09]),
+#       amplitude=0.04,
+#       frequency=2.0,
+#       R_slope=R,
+#   )
+#   pos, vel, acc = traj(elapsed_time)   # pass to HybridController
 # ------------------------------------------------------------------------------
-import numpy as np
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Tuple
 
+import numpy as np
 
-def generate_circle_trajectory(
-    elapsed_time: float,
-    circle_center: np.ndarray,
-    circle_radius: float,
-    angular_speed: float,
-    R_slope: np.ndarray,
-    size_z: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+class Trajectory(ABC):
     """
-    Smooth circular motion on a surface.
+    Abstract base for all trajectory generators.
 
-    Args:
-        elapsed_time:  Elapsed time since the start of the trajectory.
-        circle_center: 3-D world-frame centre of the circle.
-        circle_radius: Radius [m].
-        angular_speed: Angular speed [rad/s].
-        R_slope:       3x3 rotation matrix of the surface (local → world).
-        size_z:        Height offset on the surface [m].
-
-    Returns:
-        (target_pos, x_dot_desired, x_ddot_desired) in world frame.
+    Subclasses are dataclasses.  All trajectory-specific parameters live on
+    the concrete class, so ControllerConfig stays free of unused fields.
     """
-    angle = angular_speed * elapsed_time % (2 * np.pi)
 
-    target_pos_local = np.array([
-        circle_radius * np.cos(angle),
-        circle_radius * np.sin(angle),
-        size_z,
-    ])
-    x_dot_desired_local = np.array([
-        -circle_radius * angular_speed * np.sin(angle),
-        circle_radius * angular_speed * np.cos(angle),
-        0.0,
-    ])
-    x_ddot_desired_local = np.array([
-        -circle_radius * angular_speed ** 2 * np.cos(angle),
-        -circle_radius * angular_speed ** 2 * np.sin(angle),
-        0.0,
-    ])
+    @abstractmethod
+    def __call__(
+        self, elapsed_time: float
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Compute desired kinematics at *elapsed_time* seconds after start.
 
-    return (
-        circle_center + R_slope @ target_pos_local,
-        R_slope @ x_dot_desired_local,
-        R_slope @ x_ddot_desired_local,
-    )
+        Returns
+        -------
+        target_pos      : np.ndarray (3,)  world-frame position
+        x_dot_desired   : np.ndarray (3,)  world-frame velocity
+        x_ddot_desired  : np.ndarray (3,)  world-frame acceleration
+        """
+        ...
 
 
-def generate_line_trajectory_delta(
-    elapsed_time: float,
-    start_pos: np.ndarray,
-    end_pos: np.ndarray,
-    duration: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+# ---------------------------------------------------------------------------
+# Concrete trajectory types
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SinusoidalTrajectory(Trajectory):
     """
-    Minimum-jerk straight-line trajectory.
-
-    Formula: x(t) = x_0 + [10σ³ − 15σ⁴ + 6σ⁵] (x_f − x_0),  σ = t/T
-
-    Args:
-        elapsed_time: Elapsed time since the start [s].
-        start_pos:    3-D starting position.
-        end_pos:      3-D ending position.
-        duration:     Total trajectory duration T [s].
-
-    Returns:
-        (position, velocity, acceleration) in world frame.
-    """
-    t = np.clip(elapsed_time, 0.0, duration)
-    sigma = t / duration
-
-    s       = 10 * sigma ** 3 - 15 * sigma ** 4 + 6 * sigma ** 5
-    ds_dt   = (30 * sigma ** 2 - 60 * sigma ** 3 + 30 * sigma ** 4) / duration
-    d2s_dt2 = (60 * sigma - 180 * sigma ** 2 + 120 * sigma ** 3) / (duration ** 2)
-
-    delta = end_pos - start_pos
-    return (
-        start_pos + s * delta,
-        ds_dt * delta,
-        d2s_dt2 * delta,
-    )
-
-
-def generate_sinusoidal_trajectory(
-    elapsed_time: float,
-    start_pos: np.ndarray,
-    amplitude: float,
-    frequency: float,
-    R_slope: np.ndarray,
-    size_z: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Sinusoidal back-and-forth motion along the surface x-axis.
+    Back-and-forth sinusoidal motion along the surface x-axis.
 
     Ideal for observing friction effects at velocity reversals.
 
-    Args:
-        elapsed_time: Elapsed time since the start [s].
-        start_pos:    3-D world-frame centre of oscillation.
-        amplitude:    Half-amplitude [m] (total range = 2 × amplitude).
-        frequency:    Oscillation frequency [Hz].
-        R_slope:      3x3 rotation matrix of the surface (local → world).
-        size_z:       Height offset on the surface [m].
-
-    Returns:
-        (target_pos, x_dot_desired, x_ddot_desired) in world frame.
+    Parameters
+    ----------
+    start_pos  : world-frame centre of oscillation
+    amplitude  : half-amplitude [m]  (total swing = 2 × amplitude)
+    frequency  : oscillation frequency [Hz]
+    R_slope    : 3×3 rotation matrix mapping surface-local → world frame
+    size_z     : constant height offset on the surface [m]
     """
-    omega = 2 * np.pi * frequency
 
-    target_pos_local = np.array([
-        amplitude * np.sin(omega * elapsed_time),
-        0.0,
-        size_z,
-    ])
-    x_dot_desired_local = np.array([
-        amplitude * omega * np.cos(omega * elapsed_time),
-        0.0,
-        0.0,
-    ])
-    x_ddot_desired_local = np.array([
-        -amplitude * omega ** 2 * np.sin(omega * elapsed_time),
-        0.0,
-        0.0,
-    ])
+    start_pos: np.ndarray
+    amplitude: float = 0.04
+    frequency: float = 2.0
+    R_slope:   np.ndarray = field(default_factory=lambda: np.eye(3))
+    size_z:    float = 0.0
 
-    return (
-        start_pos + R_slope @ target_pos_local,
-        R_slope @ x_dot_desired_local,
-        R_slope @ x_ddot_desired_local,
-    )
+    def __call__(self, elapsed_time: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        omega = 2.0 * np.pi * self.frequency
+        local_pos = np.array([
+            self.amplitude * np.sin(omega * elapsed_time),
+            0.0,
+            self.size_z,
+        ])
+        local_vel = np.array([
+            self.amplitude * omega * np.cos(omega * elapsed_time),
+            0.0,
+            0.0,
+        ])
+        local_acc = np.array([
+            -self.amplitude * omega ** 2 * np.sin(omega * elapsed_time),
+            0.0,
+            0.0,
+        ])
+        return (
+            self.start_pos + self.R_slope @ local_pos,
+            self.R_slope @ local_vel,
+            self.R_slope @ local_acc,
+        )
+
+
+@dataclass
+class CircleTrajectory(Trajectory):
+    """
+    Smooth circular motion on a surface.
+
+    Parameters
+    ----------
+    center        : world-frame circle centre
+    radius        : circle radius [m]
+    angular_speed : angular speed [rad/s]
+    R_slope       : 3×3 rotation matrix mapping surface-local → world frame
+    size_z        : constant height offset on the surface [m]
+    """
+
+    center:        np.ndarray
+    radius:        float = 0.05
+    angular_speed: float = np.pi
+    R_slope:       np.ndarray = field(default_factory=lambda: np.eye(3))
+    size_z:        float = 0.0
+
+    def __call__(self, elapsed_time: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        angle = self.angular_speed * elapsed_time % (2.0 * np.pi)
+        local_pos = np.array([
+            self.radius * np.cos(angle),
+            self.radius * np.sin(angle),
+            self.size_z,
+        ])
+        local_vel = np.array([
+            -self.radius * self.angular_speed * np.sin(angle),
+             self.radius * self.angular_speed * np.cos(angle),
+            0.0,
+        ])
+        local_acc = np.array([
+            -self.radius * self.angular_speed ** 2 * np.cos(angle),
+            -self.radius * self.angular_speed ** 2 * np.sin(angle),
+            0.0,
+        ])
+        return (
+            self.center + self.R_slope @ local_pos,
+            self.R_slope @ local_vel,
+            self.R_slope @ local_acc,
+        )
+
+
+@dataclass
+class LineTrajectory(Trajectory):
+    """
+    Minimum-jerk straight-line trajectory.
+
+    x(t) = x_0 + [10σ³ − 15σ⁴ + 6σ⁵](x_f − x_0),   σ = clip(t, 0, T) / T
+
+    Parameters
+    ----------
+    start_pos : 3-D starting position
+    end_pos   : 3-D ending position
+    duration  : total trajectory time T [s]
+    """
+
+    start_pos: np.ndarray
+    end_pos:   np.ndarray
+    duration:  float = 5.0
+
+    def __call__(self, elapsed_time: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        t     = np.clip(elapsed_time, 0.0, self.duration)
+        sigma = t / self.duration
+
+        s       =  10 * sigma ** 3 - 15 * sigma ** 4 +   6 * sigma ** 5
+        ds_dt   = (30 * sigma ** 2 - 60 * sigma ** 3 +  30 * sigma ** 4) / self.duration
+        d2s_dt2 = (60 * sigma      - 180 * sigma ** 2 + 120 * sigma ** 3) / self.duration ** 2
+
+        delta = self.end_pos - self.start_pos
+        return (
+            self.start_pos + s * delta,
+            ds_dt   * delta,
+            d2s_dt2 * delta,
+        )
