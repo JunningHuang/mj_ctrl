@@ -57,40 +57,53 @@ def build_trajectory(
     """
     Build a Trajectory instance from the 'trajectory' section of the config.
 
-    Only the parameters for the chosen trajectory type are read.
-    ``R_slope`` is derived from ``controller_cfg.euler`` so the controller
-    and the trajectory share the same surface frame.
+    size_z is taken from controller_cfg so the trajectory height is aligned
+    with the physical slope geometry.  All position parameters (start_pos,
+    center, end_pos) must be provided explicitly in the trajectory YAML section.
 
     Supported types
     ---------------
-    "sinusoidal"  →  SinusoidalTrajectory
-    "circle"      →  CircleTrajectory
-    "line"        →  LineTrajectory
+    "sinusoidal"  →  SinusoidalTrajectory  (requires: start_pos)
+    "circle"      →  CircleTrajectory      (requires: center, radius)
+    "line"        →  LineTrajectory        (requires: start_pos, end_pos)
     """
     traj_raw  = raw.get("trajectory", {})
     traj_type = traj_raw.get("type", "sinusoidal")
 
     R_slope = _euler_to_rot_matrix(controller_cfg.euler)
+    size_z  = controller_cfg.size_z
 
     if traj_type == "sinusoidal":
+        if "start_pos" not in traj_raw:
+            raise ValueError(
+                "trajectory.start_pos is required for sinusoidal trajectory"
+            )
         return SinusoidalTrajectory(
             start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
             amplitude = traj_raw.get("amplitude", 0.04),
             frequency = traj_raw.get("frequency", 2.0),
             R_slope   = R_slope,
-            size_z    = traj_raw.get("size_z", 0.0),
+            size_z    = size_z,
         )
 
     elif traj_type == "circle":
+        if "center" not in traj_raw:
+            raise ValueError(
+                "trajectory.center is required for circle trajectory"
+            )
         return CircleTrajectory(
             center        = np.asarray(traj_raw["center"], dtype=float),
             radius        = traj_raw.get("radius", 0.05),
             angular_speed = traj_raw.get("angular_speed", np.pi),
             R_slope       = R_slope,
-            size_z        = traj_raw.get("size_z", 0.0),
+            size_z        = size_z,
         )
 
     elif traj_type == "line":
+        if "start_pos" not in traj_raw or "end_pos" not in traj_raw:
+            raise ValueError(
+                "trajectory.start_pos and trajectory.end_pos are required for line trajectory"
+            )
         return LineTrajectory(
             start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
             end_pos   = np.asarray(traj_raw["end_pos"],   dtype=float),

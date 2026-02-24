@@ -2,10 +2,20 @@
 # General Controller Configuration
 # Shared configuration parameters for all robot controllers.
 #
-# Trajectory-specific parameters (amplitude, radius, start_pos, …) do NOT
-# live here.  They belong exclusively to the Trajectory subclass being used,
-# so loading a config never pulls in parameters for trajectories you are not
-# running.  See src/trajectories.py.
+# This config holds two kinds of parameters:
+#
+#   Scene geometry (used by MujocoRobotInterface to build the slope in sim):
+#     size_z, circle_center, circle_radius
+#   These also serve as natural defaults for trajectory constructors so that
+#   the trajectory aligns with the physical slope in the scene.
+#
+#   Controller-level parameters (used directly by controllers):
+#     dt, gravity_compensation, motion_duration, position_tolerance, euler,
+#     use_table
+#
+# Trajectory-specific parameters (amplitude, frequency, angular_speed, …) do
+# NOT live here.  They belong on the concrete Trajectory subclass.
+# See src/trajectories.py.
 # ------------------------------------------------------------------------------
 import numpy as np
 from dataclasses import dataclass
@@ -23,10 +33,17 @@ class ControlPhase(Enum):
 @dataclass
 class ControllerConfig:
     """
-    Parameters shared across all controllers.
+    Parameters shared across all controllers and the MuJoCo interface.
 
-    Fields
-    ------
+    Scene geometry fields
+    ---------------------
+    size_z    : Slope thickness passed to add_slope_xml; also used as the
+                height offset for surface trajectories [m].
+    slope_pos : World-frame position of the slope body passed to
+                add_slope_xml [m].
+
+    Controller fields
+    -----------------
     dt                  : Timestep [s] — used for result plotting only.
     gravity_compensation: Enable gravity compensation torque.
     motion_duration     : How long the trajectory runs before the controller
@@ -39,14 +56,21 @@ class ControllerConfig:
     use_table           : Whether the scene uses a flat table geometry.
     """
 
-    dt:                   float        = 0.001
-    gravity_compensation: bool         = False
-    motion_duration:      float        = 10.0
-    position_tolerance:   float        = 0.01
-    euler:                np.ndarray   = None
-    use_table:            bool         = False
+    # Scene geometry (slope body placement in the MuJoCo world)
+    size_z:    float      = 0.0001   # Slope thickness [m]
+    slope_pos: np.ndarray = None     # Slope body position in world frame [m]
+
+    # Controller / simulation parameters
+    dt:                   float      = 0.001
+    gravity_compensation: bool       = False
+    motion_duration:      float      = 10.0
+    position_tolerance:   float      = 0.01
+    euler:                np.ndarray = None
+    use_table:            bool       = False
 
     def __post_init__(self) -> None:
+        if self.slope_pos is None:
+            self.slope_pos = np.array([0.5038, 0.0108, 0.0857])
         if self.euler is None:
             self.euler = np.array([0.0, 0.0, 0.0])
 
@@ -55,14 +79,17 @@ class ControllerConfig:
         """
         Build a ControllerConfig from a plain dictionary (e.g. from YAML).
 
-        The ``euler`` field is accepted as a plain list and converted to a
-        numpy array automatically.
+        Array-valued fields (slope_pos, euler) are accepted as plain lists
+        and converted to numpy arrays automatically.
         """
         kwargs: Dict[str, Any] = {}
-        for f in ("dt", "gravity_compensation", "motion_duration",
+        for f in ("size_z",
+                  "dt", "gravity_compensation", "motion_duration",
                   "position_tolerance", "use_table"):
             if f in d:
                 kwargs[f] = d[f]
+        if "slope_pos" in d:
+            kwargs["slope_pos"] = np.asarray(d["slope_pos"], dtype=float)
         if "euler" in d:
             kwargs["euler"] = np.asarray(d["euler"], dtype=float)
         return cls(**kwargs)

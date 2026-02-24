@@ -8,7 +8,29 @@ It allows using the same controller code for both simulation (MuJoCo) and real r
 import numpy as np
 import mujoco
 from typing import Optional
-from utils import add_slope_xml
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+def add_slope_xml(xml_path, euler, size_z, body_pos):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    worldbody = root.find("worldbody")
+    slope_body = ET.fromstring(f"""
+    <body name="slope_body" pos="{body_pos[0]} {body_pos[1]} {body_pos[2]}" euler="{euler[0]} {euler[1]} {euler[2]}">
+      <geom name="slope_geom"
+            type="box"
+            size="0.20 0.20 {size_z}"
+            rgba="0.8 0.2 0.2 0.5"
+            contype="1"
+            conaffinity="1"/>
+    </body>
+    """)
+    worldbody.append(slope_body)
+
+    # WRITE to file for debug
+    new_xml_path = Path(xml_path).with_name("table_slope_auto.xml")
+    tree.write(new_xml_path, encoding="utf-8", xml_declaration=True)
+    return str(new_xml_path)
 
 class Torques:
     def __init__(self, torques):
@@ -75,8 +97,7 @@ class MujocoRobotInterface:
             xml_path,
             common_config.euler,
             common_config.size_z,
-            common_config.circle_radius,
-            common_config.circle_center
+            common_config.slope_pos,
         )
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.opt.timestep = common_config.dt

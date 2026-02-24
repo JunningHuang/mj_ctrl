@@ -7,6 +7,8 @@
 #
 # Usage:
 #   python -m ppo_friction_compensation.train_ppo --config configs/experiment_config.yaml
+#   python run_hybrid_control_mujoco.py            --config configs/experiment_config.yaml
+#   python run_hybrid_control_franka.py  --ip <ip> --config configs/experiment_config.yaml
 # ==============================================================================
 
 # Optional human-readable label.  If null, a timestamped name is generated.
@@ -35,19 +37,28 @@ training:
 
 # ==============================================================================
 # ControllerConfig
-# Contains only controller-level parameters — no trajectory geometry.
+# Contains controller-level parameters AND scene geometry.
+# The scene geometry fields (size_z, circle_center, circle_radius) are used by
+# MujocoRobotInterface to build the physical slope in simulation, and also
+# serve as defaults for the trajectory so the motion aligns with the slope.
 # ==============================================================================
 controller:
-  dt:                   0.001   # Timestep [s] (used for plotting only)
+  # -- Scene geometry ---------------------------------------------------------
+  # Physical slope in MuJoCo simulation.
+  size_z:    0.0001                     # Slope thickness [m]
+  slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
+
+  # -- Surface orientation ----------------------------------------------------
+  # Used by HybridController to build constraint-frame selection matrices,
+  # and by build_trajectory to compute R_slope for surface trajectories.
+  euler: [0.0, 0.0, 0.0]   # Surface orientation (roll, pitch, yaw) [rad]
+
+  # -- Controller parameters --------------------------------------------------
+  dt:                   0.001   # Timestep [s] (plotting only)
   gravity_compensation: true
 
   # How long the trajectory runs [s].  Set large to run continuously.
   motion_duration: 10.0
-
-  # Surface orientation (roll, pitch, yaw) [rad].
-  # Used by HybridController to build the constraint-frame selection matrices
-  # AND passed to build_trajectory to compute R_slope for surface trajectories.
-  euler: [0.0, 0.0, 0.0]
 
   # Distance threshold for is_target_reached() [m].
   position_tolerance: 0.01
@@ -77,27 +88,28 @@ hybrid_controller:
 
 # ==============================================================================
 # Trajectory
-# Only the parameters for the active type need to be set.
-# Switch type to "circle" or "line" and fill in the matching block.
+# Trajectory-specific parameters only.  size_z is read automatically from
+# the controller section above.  All position parameters (start_pos, center,
+# end_pos) must be set explicitly here.
+#
+# Only fill in the block matching the active type; the others are ignored.
 # ==============================================================================
 trajectory:
   type: "sinusoidal"
 
-  # -- Sinusoidal ----------------------------------------------------------
-  start_pos: [0.5038, 0.0108, 0.0857]  # World-frame centre of oscillation
-  amplitude: 0.04                       # Half-amplitude [m]
-  frequency: 2.0                        # [Hz]
-  size_z:    0.0                        # Height offset on surface [m]
+  # -- Sinusoidal (default) ----------------------------------------------------
+  start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
+  amplitude: 0.04    # Half-amplitude [m]
+  frequency: 2.0     # [Hz]
 
-  # -- Circle --------------------------------------------------------------
+  # -- Circle ------------------------------------------------------------------
   # type: "circle"
-  # center:        [0.5038, 0.0108, 0.0857]
-  # radius:        0.05
-  # angular_speed: 3.14159265
-  # size_z:        0.0
+  # center:        [0.5038, 0.0108, 0.0857]   # Center position [m]
+  # radius:        0.05                        # [m]
+  # angular_speed: 3.14159265                  # [rad/s]
 
-  # -- Line (minimum-jerk) -------------------------------------------------
+  # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
   # start_pos: [0.5038, 0.0108, 0.0857]
   # end_pos:   [0.5538, 0.0108, 0.0857]
-  # duration:  5.0                        # Total trajectory time [s]
+  # duration:  5.0                          # [s]
