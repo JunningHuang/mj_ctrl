@@ -3,20 +3,20 @@
 Single-file pedagogical implementations of common robotics controllers in MuJoCo.
 
 ## Installation
-
-MuJoCo is the _only dependency_ required to run the controllers.
-
 ```bash
-pip install "mujoco>=3.1.0"
+conda env create -f environment.yml
 ```
 
 ## Usage
+```bash
+python -m ppo_friction_compensation.train_ppo   --epochs 200   --steps-per-epoch 4000   --save-dir ppo_checkpoints # full training
 
-| File                   | Video                             | Description                                                             |
-| ---------------------- | --------------------------------- | ----------------------------------------------------------------------- |
-| `diffik.py`            | ![image info](./images/ur5e.gif)  | Differential IK on a 6-DOF UR5e.                                        |
-| `diffik_nullspace.py`  | ![image info](./images/panda.gif) | Differential IK with nullspace control on a 7-DoF Panda.                |
-| `opspace_nullspace.py` | ![image info](./images/iiwa.gif)  | Operational space impedance + nullspace control on a 7-DOF KUKA iiwa14. |
+python -m ppo_friction_compensation.train_ppo   --epochs 3   --steps-per-epoch 1000   --train-pi-iters 10   --train-v-iters 10   --save-every 3   --save-dir /tmp/ppo_test # minimal test training run
+
+python run_ppo_eval.py --checkpoint ppo_checkpoints/final --no-ppo # evaluate without viewer
+
+
+```
 
 ## Acknowledgements
 
