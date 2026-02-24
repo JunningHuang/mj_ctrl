@@ -1,27 +1,29 @@
 # ------------------------------------------------------------------------------
-# PPO Friction Compensation — Headless Evaluation Script (no viewer)
+# PPO Friction Compensation — Evaluation Script
 #
-# Runs one full episode without the MuJoCo viewer and saves plots:
+# Runs one full episode and saves plots:
 #   1. Contact force vs desired
 #   2. Force error over time
 #   3. PPO per-joint torque corrections Δτ
-#   4. EE position (X/Y/Z) vs desired position  ← from hybrid_controller logs
+#   4. EE position (X/Y/Z) vs desired position
 #
 # Usage (from repo root ~/mj_ctrl):
 #   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --robot fr3
-#   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --no-ppo   # baseline
+#   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --viewer
+#   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --no-ppo
 # ------------------------------------------------------------------------------
 
 import argparse
 import os
 import sys
+import time
 
 import mujoco
 import numpy as np
 import pinocchio as pino
 import torch
 import matplotlib
-matplotlib.use("Agg")   # headless — no display required
+matplotlib.use("Agg")   # headless-safe; always save plots to files
 import matplotlib.pyplot as plt
 
 from src import (
@@ -177,7 +179,7 @@ def save_plots(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Headless PPO friction-compensation evaluation (no viewer)"
+        description="PPO friction-compensation evaluation (headless or with viewer)"
     )
     parser.add_argument("--checkpoint", default="ppo_checkpoints/final",
                         help="Checkpoint prefix, e.g. ppo_checkpoints/final")
@@ -190,6 +192,8 @@ def main() -> None:
                         help="Desired contact force in N (default: -8.0)")
     parser.add_argument("--out-dir", default="ppo_eval_plots",
                         help="Directory to save output plots (default: ppo_eval_plots/)")
+    parser.add_argument("--viewer", action="store_true",
+                        help="Launch the MuJoCo viewer (default: headless)")
     args = parser.parse_args()
 
     label = "baseline_no_ppo" if args.no_ppo else f"ppo_{os.path.basename(args.checkpoint)}"
@@ -202,6 +206,7 @@ def main() -> None:
     print(f"[CONFIG] Checkpoint : {args.checkpoint}")
     print(f"[CONFIG] PPO active : {not args.no_ppo}")
     print(f"[CONFIG] Duration   : {args.circle_duration}s")
+    print(f"[CONFIG] Viewer     : {args.viewer}")
     print(f"[CONFIG] Output dir : {args.out_dir}/")
 
     # ----------------------------------------------------------------
@@ -288,16 +293,18 @@ def main() -> None:
     control_phase     = ControlPhase.CIRCLE_DRAWING
 
     # ----------------------------------------------------------------
-    # 8. Headless control loop  (no viewer, no sleep — runs as fast as possible)
+    # 8. Step function (closure over shared state)
+    # Returns True while the episode is running, False when done.
+    # Increments sim_time and physics_step internally.
     # ----------------------------------------------------------------
-    print(f"\n[EVAL] Running headless …")
+    def step() -> bool:
+        nonlocal prev_force_error, current_delta_tau, physics_step
+        nonlocal control_phase, sim_time
 
-    while True:
         robot_state, _ = mujoco_interface.readOnce()
 
         if control_phase == ControlPhase.CIRCLE_DRAWING:
 
-            # Base torque from hybrid controller
             tau_hybrid = hybrid_controller.update(sim_time, robot_state)
 
             # PPO correction — update every action_repeat=20 physics steps
@@ -331,20 +338,59 @@ def main() -> None:
                       f"({physics_step} physics steps)")
                 control_phase = ControlPhase.STOPPED
 
-        else:  # STOPPED
+            sim_time     += dt_physics
+            physics_step += 1
+            return True
+
+        else:  # STOPPED — send one final gravity-hold command then signal done
             tau_grav = pino.computeGeneralizedGravity(
                 pino_model, pino_data, np.array(robot_state.q)
             )
             cmd = Torques(tau_grav.tolist())
             cmd.motion_finished = True
             mujoco_interface.writeOnce(cmd)
-            break
-
-        sim_time     += dt_physics
-        physics_step += 1
+            return False
 
     # ----------------------------------------------------------------
-    # 9. Terminal summary
+    # 9. Run loop — viewer or headless
+    # ----------------------------------------------------------------
+    if args.viewer:
+        import mujoco.viewer as _mj_viewer
+
+        print("\n" + "=" * 60)
+        print("PPO FRICTION COMPENSATION EVALUATION  [VIEWER MODE]")
+        print("=" * 60)
+        print(f"Robot    : {robot_cfg.name.upper()}")
+        print(f"F_desired: {args.f_desired} N")
+        print(f"Duration : {args.circle_duration} s")
+        print("=" * 60)
+        input("Press Enter to start the simulation...")
+
+        with mujoco.viewer.launch_passive(
+            mujoco_interface.model, mujoco_interface.data,
+            show_left_ui=False, show_right_ui=False,
+        ) as viewer:
+            mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
+            print(f"\n[EVAL] Running with viewer. Close the window to stop early.")
+            print(f"[EVAL] Episode ends automatically after {args.circle_duration}s\n")
+
+            while viewer.is_running():
+                step_start = time.time()
+                keep_going = step()
+                viewer.sync()
+                remaining = dt_physics - (time.time() - step_start)
+                if remaining > 0:
+                    time.sleep(remaining)
+                if not keep_going:
+                    break
+
+    else:
+        print(f"\n[EVAL] Running headless …")
+        while step():
+            pass
+
+    # ----------------------------------------------------------------
+    # 10. Terminal summary
     # ----------------------------------------------------------------
     fe_arr = np.array(log_force_errors)
     dt_arr = np.array(log_delta_taus)
@@ -361,7 +407,7 @@ def main() -> None:
     print("=" * 60)
 
     # ----------------------------------------------------------------
-    # 10. Save all plots
+    # 11. Save all plots
     # ----------------------------------------------------------------
     save_plots(
         log_force_actual, log_force_errors, log_delta_taus, log_rewards,
