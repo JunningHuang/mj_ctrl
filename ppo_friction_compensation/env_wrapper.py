@@ -30,6 +30,7 @@ Episode terminates if |force_error| > 100 N  or  sim_time ≥ 10 s.
 
 import os
 import sys
+from typing import Callable, Optional, Tuple
 
 # Make the repo root importable regardless of the working directory.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,8 +48,10 @@ from src import (
     ControllerConfig,
     HybridController,
     HybridControllerConfig,
+    TrajectoryFn,
     get_robot_config,
 )
+from src.experiment_manager import build_trajectory_fn
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 
 
@@ -124,6 +127,13 @@ class HybridControlEnv:
         Hard cap on approach phase physics steps during reset().
     approach_contact_thresh : float
         Approach phase ends early when |F_z| exceeds this threshold [N].
+    common_config : ControllerConfig or None
+        Shared controller config.  If None a default is constructed.
+    hybrid_config : HybridControllerConfig or None
+        Hybrid controller config.  If None a default is constructed.
+    trajectory_fn : TrajectoryFn or None
+        Callable(elapsed_time) → (pos, vel, acc).  If None a default
+        sinusoidal trajectory is built from common_config.
     """
 
     OBS_DIM = 18
@@ -138,13 +148,16 @@ class HybridControlEnv:
         f_desired: float = -8.0,
         approach_max_steps: int = 3000,
         approach_contact_thresh: float = 1.0,
+        common_config: Optional[ControllerConfig] = None,
+        hybrid_config: Optional[HybridControllerConfig] = None,
+        trajectory_fn: Optional[TrajectoryFn] = None,
     ) -> None:
 
-        self.action_repeat         = action_repeat
-        self.episode_duration      = episode_duration
-        self.force_term_limit      = force_term_limit
-        self.f_desired             = f_desired
-        self.approach_max_steps    = approach_max_steps
+        self.action_repeat           = action_repeat
+        self.episode_duration        = episode_duration
+        self.force_term_limit        = force_term_limit
+        self.f_desired               = f_desired
+        self.approach_max_steps      = approach_max_steps
         self.approach_contact_thresh = approach_contact_thresh
 
         # dt for one PPO action step
@@ -155,14 +168,33 @@ class HybridControlEnv:
         # ----------------------------------------------------------------
         self.robot_cfg = get_robot_config(robot_type)
 
-        self.common_config = ControllerConfig()
-        self.common_config.gravity_compensation = True
-        # Keep the trajectory generator running well beyond episode end so
-        # the sinusoidal motion continues throughout every episode.
-        self.common_config.circle_duration = 1000.0
+        if common_config is not None:
+            self.common_config = common_config
+        else:
+            self.common_config = ControllerConfig()
+            self.common_config.gravity_compensation = True
+            # Keep the trajectory generator running well beyond episode end so
+            # the sinusoidal motion continues throughout every episode.
+            self.common_config.circle_duration = 1000.0
 
-        self.hybrid_config  = HybridControllerConfig()
+        self.hybrid_config   = hybrid_config  if hybrid_config  is not None else HybridControllerConfig()
         self.approach_config = CartesianSpacePDControlConfig()
+
+        # Build a default trajectory_fn if none was provided
+        if trajectory_fn is not None:
+            self._trajectory_fn = trajectory_fn
+        else:
+            import functools
+            from src.trajectories import generate_sinusoidal_trajectory
+            R_slope = euler_to_rot_matrix(self.common_config.euler)
+            self._trajectory_fn = functools.partial(
+                generate_sinusoidal_trajectory,
+                start_pos=self.common_config.circle_center,
+                amplitude=self.common_config.sinusoidal_amplitude,
+                frequency=self.common_config.sinusoidal_frequency,
+                R_slope=R_slope,
+                size_z=self.common_config.size_z,
+            )
 
         # Near-surface joint configuration (calibrated in run_hybrid_control_mujoco.py)
         self.contact_q0 = np.array(
@@ -172,8 +204,8 @@ class HybridControlEnv:
         # ----------------------------------------------------------------
         # Pinocchio model (shared between hybrid ctrl and obs computation)
         # ----------------------------------------------------------------
-        self.pino_model = pino.buildModelFromMJCF(self.robot_cfg.pinocchio_xml_path)
-        self.pino_data  = self.pino_model.createData()
+        self.pino_model    = pino.buildModelFromMJCF(self.robot_cfg.pinocchio_xml_path)
+        self.pino_data     = self.pino_model.createData()
         self.pino_frame_id = self.pino_model.getFrameId(self.robot_cfg.ee_frame_name)
 
         # ----------------------------------------------------------------
@@ -197,6 +229,7 @@ class HybridControlEnv:
         self.hybrid_controller = HybridController(
             self.hybrid_config,
             self.common_config,
+            self._trajectory_fn,
             n_joints=self.robot_cfg.n_joints,
             ee_frame_name=self.robot_cfg.ee_frame_name,
         )
@@ -334,15 +367,6 @@ class HybridControlEnv:
 
     def _reset_to_home(self) -> None:
         """Reset MuJoCo data to the home keyframe or fallback joint config."""
-        # try:
-        #     self.mj.reset_to_keyframe("home")
-        #     mujoco.mj_forward(self.mj.model, self.mj.data)
-        # except Exception:
-        #     # No "home" keyframe — use the robot's built-in default q0
-        #     home_q0 = self.robot_cfg.q0.copy()
-        #     self.mj.data.qpos[: len(home_q0)] = home_q0
-        #     self.mj.data.qvel[:] = 0.0
-        #     mujoco.mj_forward(self.mj.model, self.mj.data)
         home_q0 = self.contact_q0.copy()
         self.mj.data.qpos[: len(home_q0)] = home_q0
         self.mj.data.qvel[:] = 0.0
@@ -413,7 +437,7 @@ class HybridControlEnv:
         force_error = self.f_desired - f_z
 
         # Force-error derivative (finite difference over one PPO step)
-        force_error_dot    = (force_error - self.prev_force_error) / self.dt_action
+        force_error_dot       = (force_error - self.prev_force_error) / self.dt_action
         self.prev_force_error = force_error
 
         # EE velocity via Pinocchio Jacobian
@@ -429,10 +453,10 @@ class HybridControlEnv:
         ee_velocity = (jac @ dq).astype(np.float32)  # (6,)
 
         obs = np.concatenate([
-            np.array([force_error],      dtype=np.float32),   # 1
-            contact_force_local,                               # 3
-            ee_velocity,                                       # 6
-            dq.astype(np.float32),                            # 7
-            np.array([force_error_dot],  dtype=np.float32),   # 1
-        ])                                                     # → 18
+            np.array([force_error],     dtype=np.float32),   # 1
+            contact_force_local,                              # 3
+            ee_velocity,                                      # 6
+            dq.astype(np.float32),                           # 7
+            np.array([force_error_dot], dtype=np.float32),   # 1
+        ])                                                    # → 18
         return obs

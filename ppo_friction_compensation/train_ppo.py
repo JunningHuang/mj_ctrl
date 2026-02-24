@@ -4,11 +4,12 @@ PPO Friction Compensation — Training Script.
 Trains a PPO agent to output joint torque corrections Δτ that reduce the
 normal-force error during contact with a sloped surface.
 
-Usage (from the repo root):
-    python -m ppo_friction_compensation.train_ppo [options]
+Usage (recommended — config-file driven):
+    python -m ppo_friction_compensation.train_ppo \\
+        --config configs/experiment_config.yaml
 
-or:
-    python ppo_friction_compensation/train_ppo.py [options]
+Usage (legacy — individual CLI flags, config file optional):
+    python -m ppo_friction_compensation.train_ppo [options]
 
 Key hyper-parameters (matching the implementation brief)
 ---------------------------------------------------------
@@ -40,6 +41,13 @@ if _REPO_ROOT not in sys.path:
 from ppo_friction_compensation.env_wrapper import HybridControlEnv
 from ppo_friction_compensation.ppo_agent import PPOAgent
 from ppo_friction_compensation.rollout_buffer import RolloutBuffer
+from src.experiment_manager import (
+    ExperimentManager,
+    build_controller_config,
+    build_hybrid_controller_config,
+    build_trajectory_fn,
+    load_config,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -49,11 +57,6 @@ from ppo_friction_compensation.rollout_buffer import RolloutBuffer
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
-
-
-def _make_save_dir(base: str) -> str:
-    os.makedirs(base, exist_ok=True)
-    return base
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +76,13 @@ def train(
     train_v_iters:   int   = 80,
     target_kl:       float = 0.01,
     save_every:      int   = 10,
+    experiment_manager: "ExperimentManager | None" = None,
+    # Legacy fallback when no ExperimentManager is provided
     save_dir:        str   = "ppo_checkpoints",
     seed:            int   = 0,
+    common_config=None,
+    hybrid_config=None,
+    trajectory_fn=None,
 ) -> None:
     """
     Run PPO training.
@@ -85,13 +93,39 @@ def train(
       3. Run PPO actor + critic updates.
       4. Log diagnostics.
       5. (optionally) Save checkpoint.
+
+    Parameters
+    ----------
+    experiment_manager : ExperimentManager or None
+        If provided, checkpoints go to ``experiment_manager.checkpoints_dir``
+        and the training log is written to ``experiment_manager.logs_dir``.
+        If None, checkpoints fall back to ``save_dir``.
+    common_config : ControllerConfig or None
+        Passed through to HybridControlEnv.
+    hybrid_config : HybridControllerConfig or None
+        Passed through to HybridControlEnv.
+    trajectory_fn : callable or None
+        Passed through to HybridControlEnv.
     """
     _set_seed(seed)
-    save_dir = _make_save_dir(save_dir)
+
+    # Determine checkpoint directory
+    if experiment_manager is not None:
+        ckpt_dir = experiment_manager.checkpoints_dir
+        log_path = experiment_manager.log_path("training.log")
+    else:
+        ckpt_dir = save_dir
+        os.makedirs(ckpt_dir, exist_ok=True)
+        log_path = None
 
     # ---- Environment --------------------------------------------------------
     print(f"[TRAIN] Initialising environment (robot={robot_type}) …")
-    env = HybridControlEnv(robot_type=robot_type)
+    env = HybridControlEnv(
+        robot_type=robot_type,
+        common_config=common_config,
+        hybrid_config=hybrid_config,
+        trajectory_fn=trajectory_fn,
+    )
 
     # ---- Agent + buffer -----------------------------------------------------
     agent = PPOAgent(
@@ -112,13 +146,23 @@ def train(
         lam     = lam,
     )
 
+    # ---- Log file setup -----------------------------------------------------
+    log_file = open(log_path, "w") if log_path is not None else None
+    if log_file is not None:
+        header = (
+            "epoch,mean_ret,mean_len,pi_loss,vf_loss,kl,pi_iters,"
+            "n_episodes,elapsed_s\n"
+        )
+        log_file.write(header)
+        log_file.flush()
+
     # ---- Initial reset -------------------------------------------------------
     print("[TRAIN] Running initial environment reset …")
     obs = env.reset()
 
     # Running episode statistics
-    ep_ret  = 0.0
-    ep_len  = 0
+    ep_ret   = 0.0
+    ep_len   = 0
     ep_count = 0
 
     # ---- Epoch loop ----------------------------------------------------------
@@ -176,7 +220,7 @@ def train(
         mean_len   = float(np.mean(ep_lens)) if ep_lens else float("nan")
         n_ep_epoch = len(ep_rets)
 
-        print(
+        line = (
             f"Epoch {epoch + 1:4d}/{epochs} | "
             f"MeanRet={mean_ret:9.2f} | "
             f"MeanLen={mean_len:6.1f} | "
@@ -187,19 +231,34 @@ def train(
             f"eps={n_ep_epoch:3d} | "
             f"elapsed={t_elapsed:.1f}s"
         )
+        print(line)
+
+        if log_file is not None:
+            csv_line = (
+                f"{epoch + 1},{mean_ret:.4f},{mean_len:.1f},"
+                f"{stats['pi_loss']:.6f},{stats['vf_loss']:.6f},"
+                f"{stats['kl']:.6f},{stats['pi_updates']},"
+                f"{n_ep_epoch},{t_elapsed:.2f}\n"
+            )
+            log_file.write(csv_line)
+            log_file.flush()
 
         # ---- Checkpoint -----------------------------------------------------
         if (epoch + 1) % save_every == 0:
-            prefix = os.path.join(save_dir, f"epoch_{epoch + 1:04d}")
+            tag    = f"epoch_{epoch + 1:04d}"
+            prefix = os.path.join(ckpt_dir, tag)
             agent.save(prefix)
             env.normalizer.save(f"{prefix}_normalizer.npz")
             print(f"  [SAVE] Checkpoint → {prefix}_{{actor,critic}}.pt + normalizer.npz")
 
     # ---- Final save ---------------------------------------------------------
-    prefix = os.path.join(save_dir, "final")
+    prefix = os.path.join(ckpt_dir, "final")
     agent.save(prefix)
     env.normalizer.save(f"{prefix}_normalizer.npz")
     print(f"\n[TRAIN] Done. Final model → {prefix}_{{actor,critic}}.pt")
+
+    if log_file is not None:
+        log_file.close()
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +269,14 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Train PPO friction-compensation agent"
     )
+    # Config-file mode (recommended)
+    p.add_argument(
+        "--config", default=None,
+        help="Path to a unified experiment config YAML. "
+             "When provided, all training/controller/trajectory parameters are "
+             "read from the file; individual flags below are ignored.",
+    )
+    # Legacy individual flags (used when --config is not provided)
     p.add_argument("--robot",            default="fr3",       help="Robot type")
     p.add_argument("--steps-per-epoch",  type=int,   default=4000)
     p.add_argument("--epochs",           type=int,   default=200)
@@ -224,26 +291,71 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--save-every",       type=int,   default=10,
                    help="Save checkpoint every N epochs")
     p.add_argument("--save-dir",         default="ppo_checkpoints",
-                   help="Directory for checkpoints and normalizer stats")
+                   help="Checkpoint directory (legacy; ignored when --config is used)")
     p.add_argument("--seed",             type=int,   default=0)
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    train(
-        robot_type      = args.robot,
-        steps_per_epoch = args.steps_per_epoch,
-        epochs          = args.epochs,
-        gamma           = args.gamma,
-        lam             = args.lam,
-        clip_ratio      = args.clip_ratio,
-        pi_lr           = args.pi_lr,
-        vf_lr           = args.vf_lr,
-        train_pi_iters  = args.train_pi_iters,
-        train_v_iters   = args.train_v_iters,
-        target_kl       = args.target_kl,
-        save_every      = args.save_every,
-        save_dir        = args.save_dir,
-        seed            = args.seed,
-    )
+
+    if args.config is not None:
+        # ----------------------------------------------------------------
+        # Config-file driven run
+        # ----------------------------------------------------------------
+        raw             = load_config(args.config)
+        training_cfg    = raw.get("training", {})
+
+        common_config   = build_controller_config(raw)
+        hybrid_config   = build_hybrid_controller_config(raw)
+        trajectory_fn   = build_trajectory_fn(raw, common_config)
+
+        exp_name        = raw.get("experiment_name") or None
+        base_dir        = raw.get("experiments_base_dir", "experiments")
+        exp_manager     = ExperimentManager(
+            base_dir   = base_dir,
+            name       = exp_name,
+            config_src = args.config,
+        )
+        print(f"[TRAIN] Experiment folder: {exp_manager.root}")
+
+        train(
+            robot_type      = training_cfg.get("robot_type",      "fr3"),
+            steps_per_epoch = training_cfg.get("steps_per_epoch", 4000),
+            epochs          = training_cfg.get("epochs",          200),
+            gamma           = training_cfg.get("gamma",           0.99),
+            lam             = training_cfg.get("lam",             0.97),
+            clip_ratio      = training_cfg.get("clip_ratio",      0.2),
+            pi_lr           = training_cfg.get("pi_lr",           3e-4),
+            vf_lr           = training_cfg.get("vf_lr",           1e-3),
+            train_pi_iters  = training_cfg.get("train_pi_iters",  80),
+            train_v_iters   = training_cfg.get("train_v_iters",   80),
+            target_kl       = training_cfg.get("target_kl",       0.01),
+            save_every      = training_cfg.get("save_every",      10),
+            seed            = training_cfg.get("seed",            0),
+            experiment_manager = exp_manager,
+            common_config   = common_config,
+            hybrid_config   = hybrid_config,
+            trajectory_fn   = trajectory_fn,
+        )
+
+    else:
+        # ----------------------------------------------------------------
+        # Legacy CLI-flag driven run (no ExperimentManager)
+        # ----------------------------------------------------------------
+        train(
+            robot_type      = args.robot,
+            steps_per_epoch = args.steps_per_epoch,
+            epochs          = args.epochs,
+            gamma           = args.gamma,
+            lam             = args.lam,
+            clip_ratio      = args.clip_ratio,
+            pi_lr           = args.pi_lr,
+            vf_lr           = args.vf_lr,
+            train_pi_iters  = args.train_pi_iters,
+            train_v_iters   = args.train_v_iters,
+            target_kl       = args.target_kl,
+            save_every      = args.save_every,
+            save_dir        = args.save_dir,
+            seed            = args.seed,
+        )
