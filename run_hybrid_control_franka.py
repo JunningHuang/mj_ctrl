@@ -1,167 +1,191 @@
+# ------------------------------------------------------------------------------
+# Hybrid Force-Impedance Control — Real FR3 robot
+#
+# Usage (config-file driven, recommended):
+#   python run_hybrid_control_franka.py --ip <robot-ip> \
+#       --config configs/experiment_config.yaml
+#
+# Usage (legacy defaults, no config file):
+#   python run_hybrid_control_franka.py --ip <robot-ip> [--motion-duration 10.0]
+# ------------------------------------------------------------------------------
 import argparse
+import gc
+
 import numpy as np
 import pinocchio as pino
+from pylibfranka import Robot, Torques
+
 from src import (
     ControllerConfig,
     ControlPhase,
     HybridController,
     HybridControllerConfig,
+    SinusoidalTrajectory,
 )
-import logging
-from pylibfranka import Robot, Torques
-import gc
-from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results
-from utils_libfranka import euler_to_rot_matrix, generate_start_position
+from src.robot_configs import FR3_CONFIG
+from src.experiment_manager import (
+    ExperimentManager,
+    build_controller_config,
+    build_hybrid_controller_config,
+    build_trajectory,
+    load_config,
+)
+from utils_libfranka import euler_to_rot_matrix
+from utils_plot import (
+    plot_control_torques,
+    plot_ee_positions,
+    plot_hybrid_results,
+    plot_joint_torques,
+)
 
-# logging.basicConfig(
-#     filename="mj_ctrl/robot_approach.log",
-#     level=logging.INFO,
-#     filemode="w"
-# )
+
+def _save_plots(hybrid_controller, common_config, plot_dir: str) -> None:
+    """Helper to avoid repeating the four plot calls."""
+    plot_joint_torques(hybrid_controller, "joint_torques",   common_config.dt, plot_dir=plot_dir)
+    plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir=plot_dir)
+    plot_ee_positions(hybrid_controller, common_config.dt, plot_dir=plot_dir)
+    plot_control_torques(hybrid_controller, common_config.dt, plot_dir=plot_dir)
+    plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir=plot_dir)
+
 
 def main() -> None:
-    """Main function for approach control."""
-    # Parse arguments
     parser = argparse.ArgumentParser(
-        description="Hybrid Force-Impedance Control - Surface motion with force control"
+        description="Hybrid Force-Impedance Control — Real FR3 robot"
     )
     parser.add_argument("--ip", type=str, default="localhost", help="Robot IP address")
     parser.add_argument(
-        "--circle-duration",
-        type=float,
-        default=10.0,
-        help="Duration of circle drawing in seconds (default: 10.0)"
+        "--config", default=None,
+        help="Path to a unified experiment config YAML. "
+             "When provided all controller/trajectory parameters come from the file.",
+    )
+    # Legacy flag used when --config is not provided
+    parser.add_argument(
+        "--motion-duration", type=float, default=10.0,
+        help="How long to run the trajectory [s] (default: 10.0)",
     )
     args = parser.parse_args()
 
-    # ============================================================
-    # 1. Create Configurations
-    # ============================================================
-    common_config = ControllerConfig(
-        circle_duration=args.circle_duration)
-    # common_config.size_z = 0.01
-    hybrid_config = HybridControllerConfig()
-    # q0 = np.array([0,0,0,-1.57079,0,1.57079,-0.7853])
-    # q0 = [0.02366284, 0.94320843, -0.01978183, -1.85594285, 0.04376186, 2.78281701, 0.6891366]
+    # =========================================================================
+    # 1. Build configs and trajectory
+    # =========================================================================
+    if args.config is not None:
+        raw           = load_config(args.config)
+        common_config = build_controller_config(raw)
+        hybrid_config = build_hybrid_controller_config(raw)
+        trajectory    = build_trajectory(raw, common_config)
+        exp_manager   = ExperimentManager(
+            base_dir   = raw.get("experiments_base_dir", "experiments"),
+            name       = raw.get("experiment_name") or None,
+            config_src = args.config,
+        )
+        plot_dir = exp_manager.plots_dir
+        print(f"[CONFIG] Loaded from: {args.config}")
+        print(f"[CONFIG] Experiment folder: {exp_manager.root}")
+    else:
+        common_config = ControllerConfig(
+            motion_duration=args.motion_duration,
+        )
+        hybrid_config = HybridControllerConfig()
+        R_slope       = euler_to_rot_matrix(common_config.euler)
+        trajectory    = SinusoidalTrajectory(
+            start_pos = np.array([0.5038, 0.0108, 0.0857]),
+            amplitude = 0.04,
+            frequency = 2.0,
+            R_slope   = R_slope,
+            size_z    = 0.0,
+        )
+        plot_dir = "plots/franka"
+        print("[CONFIG] No config file — using built-in defaults.")
+
+    print(f"[CONFIG] Trajectory: {type(trajectory).__name__}")
+    print(f"[CONFIG] Motion duration: {common_config.motion_duration}s")
+
+    # Real-robot q0 (calibrated for FR3 on physical setup)
     q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
 
-    # ============================================================
-    # 2. Load Model
-    # ============================================================
-    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_fr3/fr3.xml")
-    pino_data = pino_model.createData()
+    # =========================================================================
+    # 2. Load Pinocchio model
+    # =========================================================================
+    pino_model = pino.buildModelFromMJCF(FR3_CONFIG.pinocchio_xml_path)
+    pino_data  = pino_model.createData()
+
+    robot = None
+    hybrid_controller = None
     try:
-        # Connect to robot
+        # Connect
         print(f"Connecting to robot at {args.ip}...")
         robot = Robot(args.ip)
-
-        # Set collision behavior
         robot.set_collision_behavior(
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            [100.0] * 7, [100.0] * 7,
+            [100.0] * 6, [100.0] * 6,
         )
 
-        # Safety warning
-        print("\n" + "="*60)
-        print("WARNING: This will move the robot!")
+        print("\n" + "=" * 60)
+        print("WARNING: This will move the real robot!")
+        print(f"Trajectory: {type(trajectory).__name__}")
         print("Make sure:")
         print("  1. The workspace is clear")
         print("  2. Emergency stop is accessible")
         print("  3. You understand the trajectory")
-        print("="*60)
+        print("=" * 60)
         input("Press Enter to continue...")
 
-        # ============================================================
-        # 3. Create Controllers
-        # ============================================================
+        # =====================================================================
+        # 3. Create controller
+        # =====================================================================
         hybrid_controller = HybridController(
             hybrid_config,
             common_config,
+            trajectory,
+            n_joints=FR3_CONFIG.n_joints,
+            ee_frame_name=FR3_CONFIG.ee_frame_name,
         )
 
-        # ============================================================
-        # 4. Setup Initial Targets
-        # ============================================================
-        # Generate target position on the surface
-        R_slope = euler_to_rot_matrix(common_config.euler)
-        end_pos = generate_start_position(
-            common_config.circle_radius,
-            common_config.circle_center,
-            common_config.size_z,
-            R_slope
-        )
-
-        # Generate target orientation
-        # q = (w, x, y, z)
-        # target_quat = np.array([0., 1., 0.128, 0.])
-        # # quat_slope = np.zeros(4)
-        # # mujoco.mju_euler2Quat(quat_slope, common_config.euler, 'XYZ')
-        # # mujoco.mju_mulQuat(target_quat, quat_slope, target_quat)
-        # rot_slope = Rotation.from_euler('xyz', common_config.euler)
-        # rot_target = Rotation.from_quat(np.roll(target_quat, -1))
-        # target_quat = np.roll((rot_slope * rot_target).as_quat(), 1)
-
-        # Start torque control
+        # =====================================================================
+        # 4. Start torque control and initialise
+        # =====================================================================
         print("\nStarting torque control...")
         active_control = robot.start_torque_control()
-        robot_state, duration = active_control.readOnce()
-        O_T_EE = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        robot_state, _ = active_control.readOnce()
+        O_T_EE     = np.array(robot_state.O_T_EE).reshape(4, 4).T
         target_rot = O_T_EE[:3, :3]
-        start_pos = O_T_EE[:3, 3]
-        # this function doesn't work, get rid of it
-        # model = robot.load_model()
 
-        # ============================================================
-        # 5. Start Approach Phase
-        # ============================================================
-        control_phase = ControlPhase.CIRCLE_DRAWING
-        sim_time = 0
-        hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
-
-        print("\n" + "=" * 60)
-        print("PHASE 1: APPROACHING TARGET POSITION")
-        print("=" * 60)
-
-        # Warm up pinocchio computations before entering real-time loop
-        # to trigger any lazy initialization (BLAS, LAPACK, internal caches)
-        _warmup_q = np.array(q0)
-        _warmup_dq = np.zeros(7)
-        pino.forwardKinematics(pino_model, pino_data, _warmup_q, _warmup_dq)
+        # Warm up Pinocchio before entering the real-time loop
+        _wq  = np.array(q0)
+        _wdq = np.zeros(7)
+        _wfid = pino_model.getFrameId(FR3_CONFIG.ee_frame_name)
+        pino.forwardKinematics(pino_model, pino_data, _wq, _wdq)
         pino.computeJointJacobians(pino_model, pino_data)
         pino.updateFramePlacements(pino_model, pino_data)
-        _warmup_frame_id = pino_model.getFrameId("attachment")
-        pino.getFrameJacobian(pino_model, pino_data, _warmup_frame_id, pino.LOCAL_WORLD_ALIGNED)
-        pino.computeMinverse(pino_model, pino_data, _warmup_q)
-        pino.crba(pino_model, pino_data, _warmup_q)
-        pino.computeGeneralizedGravity(pino_model, pino_data, _warmup_q)
-        pino.computeCoriolisMatrix(pino_model, pino_data, _warmup_q, _warmup_dq)
-        pino.getFrameJacobianTimeVariation(pino_model, pino_data, _warmup_frame_id, pino.LOCAL_WORLD_ALIGNED)
-        del _warmup_q, _warmup_dq, _warmup_frame_id
+        pino.getFrameJacobian(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
+        pino.computeMinverse(pino_model, pino_data, _wq)
+        pino.crba(pino_model, pino_data, _wq)
+        pino.computeGeneralizedGravity(pino_model, pino_data, _wq)
+        pino.computeCoriolisMatrix(pino_model, pino_data, _wq, _wdq)
+        pino.getFrameJacobianTimeVariation(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
+        del _wq, _wdq, _wfid
 
-        # Disable garbage collection during real-time control loop
         gc.collect()
         gc.disable()
 
+        control_phase = ControlPhase.CIRCLE_DRAWING
+        sim_time      = 0.0
+        hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
+
+        print("\n" + "=" * 60)
+        print("HYBRID FORCE-IMPEDANCE CONTROL RUNNING")
+        print("=" * 60)
+
+        # =====================================================================
+        # 5. Real-time control loop
+        # =====================================================================
         try:
             while True:
-                # Read robot state
                 robot_state, duration = active_control.readOnce()
-                # try:
-                #     logging.info("Last commanded torques from controller: %s", np.round(robot_state.tau_J_d, 4).tolist())
-                # except (AttributeError, TypeError):
-                #     print("  Last commanded torques from controller: <not available>")
 
-                # ============================================================
-                # State Machine: Switch Controllers
-                # ============================================================
                 if control_phase == ControlPhase.CIRCLE_DRAWING:
-                    # Use hybrid controller
                     tau = hybrid_controller.update(sim_time, robot_state)
 
-                    # Check if finished
-                    # if hybrid_controller.is_target_reached(robot_state):
                     if hybrid_controller.is_finished():
                         print("\n" + "=" * 60)
                         print(f"HYBRID CONTROL FINISHED at t={sim_time:.2f}s!")
@@ -169,60 +193,43 @@ def main() -> None:
                         control_phase = ControlPhase.STOPPED
 
                 else:  # STOPPED
-                    # Signal motion finished and exit
                     torque_cmd = Torques(tau.tolist())
                     torque_cmd.motion_finished = True
                     active_control.writeOnce(torque_cmd)
                     break
-                # logging.info("tau: %s", np.round(tau, 4))
-                torque_cmd = Torques(tau.tolist())
-                active_control.writeOnce(torque_cmd)
+
+                active_control.writeOnce(Torques(tau.tolist()))
                 sim_time += duration.to_sec()
-            # Re-enable garbage collection after control loop
-            gc.enable()
-            gc.collect()
-            # ============================================================
-            # 7. Plot Results
-            # ============================================================
-            print("\n[MAIN] Simulation complete. Generating plots...")
-            plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
+
         except KeyboardInterrupt:
-            gc.enable()
             print("\nControl interrupted by user")
-            # Send zero torques
             torque_cmd = Torques([0.0] * 7)
             torque_cmd.motion_finished = True
             active_control.writeOnce(torque_cmd)
-            plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-            plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
 
-        print("\n[MAIN] Control finished")
-        print(f"Total time: {sim_time:.2f}s")
+        finally:
+            gc.enable()
+
+        # =====================================================================
+        # 6. Plots
+        # =====================================================================
+        print("\n[MAIN] Control complete. Generating plots...")
+        _save_plots(hybrid_controller, common_config, plot_dir)
+
+        print(f"\n[MAIN] Control finished. Total time: {sim_time:.2f}s")
+
     except Exception as e:
-        print(f"\nError occurred: {e}")
+        print(f"\nError: {e}")
         import traceback
         traceback.print_exc()
+        if hybrid_controller is not None:
+            _save_plots(hybrid_controller, common_config, plot_dir)
+        return -1
+
+    finally:
         if robot is not None:
             robot.stop()
-        plot_joint_torques(hybrid_controller, "joint_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-        plot_joint_torques(hybrid_controller, "joint_g_torques", common_config.dt, plot_dir="mj_ctrl/plots/circle")
-        plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-        plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/circle")
-        plot_hybrid_results(hybrid_controller, common_config.dt, robot_name="fr3", plot_dir="mj_ctrl/plots/circle")
-        return -1
-    finally:
-        robot.stop()
 
-        
-
-    return 0
 
 if __name__ == "__main__":
     main()
