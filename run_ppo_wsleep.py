@@ -17,6 +17,7 @@ import os
 import sys
 
 import mujoco
+import time
 import numpy as np
 import pinocchio as pino
 import torch
@@ -293,6 +294,7 @@ def main() -> None:
     print(f"\n[EVAL] Running headless …")
 
     while True:
+        step_start = time.time()
         robot_state, _ = mujoco_interface.readOnce()
 
         if control_phase == ControlPhase.CIRCLE_DRAWING:
@@ -342,6 +344,11 @@ def main() -> None:
 
         sim_time     += dt_physics
         physics_step += 1
+
+        # Maintain real-time rate (same as run_hybrid_control_mujoco.py)
+        time_until_next = dt_physics - (time.time() - step_start)
+        if time_until_next > 0:
+            time.sleep(time_until_next)
 
     # ----------------------------------------------------------------
     # 9. Terminal summary
