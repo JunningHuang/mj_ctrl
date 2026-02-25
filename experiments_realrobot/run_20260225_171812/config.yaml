@@ -15,7 +15,7 @@
 experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 
 # Root directory under which the experiment folder is created.
-experiments_base_dir: "experiments"
+experiments_base_dir: "experiments_realrobot"
 
 # ==============================================================================
 # Training hyperparameters
