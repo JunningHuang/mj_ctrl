@@ -58,7 +58,6 @@ def main() -> None:
         help="Path to a unified experiment config YAML. "
              "When provided all controller/trajectory parameters come from the file.",
     )
-    # Legacy flag used when --config is not provided
     parser.add_argument(
         "--motion-duration", type=float, default=10.0,
         help="How long to run the trajectory [s] (default: 10.0)",
@@ -101,7 +100,7 @@ def main() -> None:
     print(f"[CONFIG] Motion duration: {common_config.motion_duration}s")
 
     # Real-robot q0 (calibrated for FR3 on physical setup)
-    q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
+    q0 = np.array([0.1376, 0.5954, -0.0836, -2.3269, 0.1185, 2.9249, 0.7046])
 
     # =========================================================================
     # 2. Load Pinocchio model

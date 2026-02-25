@@ -1,0 +1,115 @@
+# ==============================================================================
+# Unified Experiment Configuration
+# ==============================================================================
+# This file is the single source of truth for one training run.
+# Edit values here; the training script, ControllerConfig, HybridControllerConfig,
+# and the Trajectory are all built from this file.
+#
+# Usage:
+#   python -m ppo_friction_compensation.train_ppo --config configs/experiment_config.yaml
+#   python run_hybrid_control_mujoco.py            --config configs/experiment_config.yaml
+#   python run_hybrid_control_franka.py  --ip <ip> --config configs/experiment_config.yaml
+# ==============================================================================
+
+# Optional human-readable label.  If null, a timestamped name is generated.
+experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
+
+# Root directory under which the experiment folder is created.
+experiments_base_dir: "experiments"
+
+# ==============================================================================
+# Training hyperparameters
+# ==============================================================================
+training:
+  robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
+  seed:             0
+  epochs:           200
+  steps_per_epoch:  4000
+  gamma:            0.99    # Discount factor
+  lam:              0.97    # GAE lambda
+  clip_ratio:       0.2     # PPO clipping epsilon
+  pi_lr:            3.0e-4  # Actor learning rate
+  vf_lr:            1.0e-3  # Critic learning rate
+  train_pi_iters:   80      # Actor gradient steps per epoch
+  train_v_iters:    80      # Critic gradient steps per epoch
+  target_kl:        0.01    # Early-stop KL threshold
+  save_every:       10      # Save checkpoint every N epochs
+
+# ==============================================================================
+# ControllerConfig
+# Contains controller-level parameters AND scene geometry.
+# The scene geometry fields (size_z, circle_center, circle_radius) are used by
+# MujocoRobotInterface to build the physical slope in simulation, and also
+# serve as defaults for the trajectory so the motion aligns with the slope.
+# ==============================================================================
+controller:
+  # -- Scene geometry ---------------------------------------------------------
+  # Physical slope in MuJoCo simulation.
+  size_z:    0.0001                     # Slope thickness [m]
+  slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
+
+  # -- Surface orientation ----------------------------------------------------
+  # Used by HybridController to build constraint-frame selection matrices,
+  # and by build_trajectory to compute R_slope for surface trajectories.
+  euler: [0.0, 0.0, 0.0]   # Surface orientation (roll, pitch, yaw) [rad]
+
+  # -- Controller parameters --------------------------------------------------
+  dt:                   0.001   # Timestep [s] (plotting only)
+  gravity_compensation: false
+
+  # How long the trajectory runs [s].  Set large to run continuously.
+  motion_duration: 10.0
+
+  # Distance threshold for is_target_reached() [m].
+  position_tolerance: 0.01
+
+  use_table: false
+
+# ==============================================================================
+# HybridControllerConfig
+# Force-impedance controller gains.
+# Kp, Kd, and Kd_null are derived automatically and are absent from this file.
+# ==============================================================================
+hybrid_controller:
+  Kpos:          0.95
+  Kori:          0.95
+  damping_ratio: 1.0
+
+  impedance_pos: [100.0, 100.0, 100.0]   # Translational stiffness [N/m]
+  impedance_ori: [50.0,  50.0,  50.0]    # Rotational stiffness [Nm/rad]
+  Kp_null:       [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
+
+  Kp_force: 0.4
+  Kd_force: 0.002
+  Ki_force: 0.4
+
+  F_desired_contact: [-8.0]   # Desired normal force [N]; negative = push into surface
+  max_delta_tau:     1.0      # Max torque change per timestep [Nm]
+
+# ==============================================================================
+# Trajectory
+# Trajectory-specific parameters only.  size_z is read automatically from
+# the controller section above.  All position parameters (start_pos, center,
+# end_pos) must be set explicitly here.
+#
+# Only fill in the block matching the active type; the others are ignored.
+# ==============================================================================
+trajectory:
+  type: "sinusoidal"
+
+  # -- Sinusoidal (default) ----------------------------------------------------
+  start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
+  amplitude: 0.04    # Half-amplitude [m]
+  frequency: 2.0     # [Hz]
+
+  # -- Circle ------------------------------------------------------------------
+  # type: "circle"
+  # center:        [0.5038, 0.0108, 0.0857]   # Center position [m]
+  # radius:        0.05                        # [m]
+  # angular_speed: 3.14159265                  # [rad/s]
+
+  # -- Line (minimum-jerk) ----------------------------------------------------
+  # type: "line"
+  # start_pos: [0.5038, 0.0108, 0.0857]
+  # end_pos:   [0.5538, 0.0108, 0.0857]
+  # duration:  5.0                          # [s]

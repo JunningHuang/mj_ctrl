@@ -9,7 +9,7 @@
 # ------------------------------------------------------------------------------
 import argparse
 import time
-
+import gc
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -136,6 +136,24 @@ def main() -> None:
             joint_names=robot_cfg.joint_names,
             xml_path=robot_cfg.mujoco_scene_xml_path,
         )
+
+        # Warm up Pinocchio before entering the real-time loop
+        _wq  = np.array(q0)
+        _wdq = np.zeros(7)
+        _wfid = pino_model.getFrameId(robot_cfg.ee_frame_name)
+        pino.forwardKinematics(pino_model, pino_data, _wq, _wdq)
+        pino.computeJointJacobians(pino_model, pino_data)
+        pino.updateFramePlacements(pino_model, pino_data)
+        pino.getFrameJacobian(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
+        pino.computeMinverse(pino_model, pino_data, _wq)
+        pino.crba(pino_model, pino_data, _wq)
+        pino.computeGeneralizedGravity(pino_model, pino_data, _wq)
+        pino.computeCoriolisMatrix(pino_model, pino_data, _wq, _wdq)
+        pino.getFrameJacobianTimeVariation(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
+        del _wq, _wdq, _wfid
+
+        gc.collect()
+        gc.disable()
 
         control_phase = ControlPhase.CIRCLE_DRAWING
 
