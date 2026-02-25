@@ -21,8 +21,8 @@ from src import (
     HybridController,
     HybridControllerConfig,
     SinusoidalTrajectory,
+    get_robot_config,
 )
-from src.robot_configs import FR3_CONFIG
 from src.experiment_manager import (
     ExperimentManager,
     build_controller_config,
@@ -69,6 +69,7 @@ def main() -> None:
     # =========================================================================
     if args.config is not None:
         raw           = load_config(args.config)
+        robot_type    = raw.get("training", {}).get("robot_type", "fr3")
         common_config = build_controller_config(raw)
         hybrid_config = build_hybrid_controller_config(raw)
         trajectory    = build_trajectory(raw, common_config)
@@ -81,6 +82,7 @@ def main() -> None:
         print(f"[CONFIG] Loaded from: {args.config}")
         print(f"[CONFIG] Experiment folder: {exp_manager.root}")
     else:
+        robot_type    = args.robot
         common_config = ControllerConfig(
             motion_duration=args.motion_duration,
         )
@@ -96,6 +98,11 @@ def main() -> None:
         plot_dir = "plots/franka"
         print("[CONFIG] No config file — using built-in defaults.")
 
+    # =========================================================================
+    # 2. Robot setup
+    # =========================================================================
+    robot_cfg = get_robot_config(robot_type)
+    print(f"[CONFIG] Robot: {robot_cfg.name}")
     print(f"[CONFIG] Trajectory: {type(trajectory).__name__}")
     print(f"[CONFIG] Motion duration: {common_config.motion_duration}s")
 
@@ -105,7 +112,7 @@ def main() -> None:
     # =========================================================================
     # 2. Load Pinocchio model
     # =========================================================================
-    pino_model = pino.buildModelFromMJCF(FR3_CONFIG.pinocchio_xml_path)
+    pino_model = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
     pino_data  = pino_model.createData()
 
     robot = None
@@ -136,8 +143,8 @@ def main() -> None:
             hybrid_config,
             common_config,
             trajectory,
-            n_joints=FR3_CONFIG.n_joints,
-            ee_frame_name=FR3_CONFIG.ee_frame_name,
+            n_joints=robot_cfg.n_joints,
+            ee_frame_name=robot_cfg.ee_frame_name,
         )
 
         # =====================================================================
@@ -152,7 +159,7 @@ def main() -> None:
         # Warm up Pinocchio before entering the real-time loop
         _wq  = np.array(q0)
         _wdq = np.zeros(7)
-        _wfid = pino_model.getFrameId(FR3_CONFIG.ee_frame_name)
+        _wfid = pino_model.getFrameId(robot_cfg.ee_frame_name)
         pino.forwardKinematics(pino_model, pino_data, _wq, _wdq)
         pino.computeJointJacobians(pino_model, pino_data)
         pino.updateFramePlacements(pino_model, pino_data)
