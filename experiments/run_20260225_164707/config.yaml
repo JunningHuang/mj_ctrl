@@ -100,7 +100,7 @@ trajectory:
   # -- Sinusoidal (default) ----------------------------------------------------
   start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
-  frequency: 1     # [Hz]
+  frequency: 0.2     # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
