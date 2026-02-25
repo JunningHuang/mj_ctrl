@@ -100,7 +100,7 @@ def main() -> None:
     print(f"[CONFIG] Trajectory: {type(trajectory).__name__}")
     print(f"[CONFIG] Motion duration: {common_config.motion_duration}s")
 
-    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
+    q0 = np.array([2.0000e-04, 5.6690e-01, 1.7500e-02, -2.3155e+00, -1.8300e-02, 2.8466e+00, -7.5130e-01])
 
     pino_model = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
     pino_data  = pino_model.createData()
