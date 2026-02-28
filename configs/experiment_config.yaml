@@ -94,6 +94,18 @@ hybrid_controller:
 #
 # Only fill in the block matching the active type; the others are ignored.
 # ==============================================================================
+# ==============================================================================
+# Weights & Biases
+# Set wandb_project to enable cloud logging for both training and evaluation.
+# Leave as null to disable W&B entirely (local CSV + plots only).
+# ==============================================================================
+wandb:
+  project: null          # e.g. "mj_ctrl_ppo"  — set to enable W&B logging
+  entity:  null          # W&B username or team; null = use your default entity
+  # Training tags are added automatically: ["train", robot_type]
+  # Eval tags are added automatically:     ["eval",  robot_type, "ppo"/"baseline"]
+
+# ==============================================================================
 trajectory:
   type: "sinusoidal"
 
