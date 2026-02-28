@@ -33,6 +33,13 @@ import time
 import numpy as np
 import torch
 
+try:
+    import wandb as _wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _wandb = None
+    _WANDB_AVAILABLE = False
+
 # Make the repo root importable when the script is run directly.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
@@ -83,6 +90,9 @@ def train(
     common_config=None,
     hybrid_config=None,
     trajectory=None,
+    # Weights & Biases
+    wandb_project:   "str | None" = None,
+    wandb_entity:    "str | None" = None,
 ) -> None:
     """
     Run PPO training.
@@ -108,6 +118,38 @@ def train(
         Passed through to HybridControlEnv.
     """
     _set_seed(seed)
+
+    # ---- Weights & Biases setup ---------------------------------------------
+    _use_wandb = wandb_project is not None and _WANDB_AVAILABLE
+    if wandb_project is not None and not _WANDB_AVAILABLE:
+        print("[WARN] wandb not installed; skipping wandb logging. "
+              "Run: pip install wandb")
+    if _use_wandb:
+        run_name = (
+            os.path.basename(experiment_manager.root)
+            if experiment_manager is not None
+            else None
+        )
+        _wandb.init(
+            project = wandb_project,
+            entity  = wandb_entity,
+            name    = run_name,
+            config  = {
+                "robot_type":      robot_type,
+                "steps_per_epoch": steps_per_epoch,
+                "epochs":          epochs,
+                "gamma":           gamma,
+                "lam":             lam,
+                "clip_ratio":      clip_ratio,
+                "pi_lr":           pi_lr,
+                "vf_lr":           vf_lr,
+                "train_pi_iters":  train_pi_iters,
+                "train_v_iters":   train_v_iters,
+                "target_kl":       target_kl,
+                "seed":            seed,
+            },
+        )
+        print(f"[TRAIN] wandb run: {_wandb.run.url}")
 
     # Determine checkpoint directory
     if experiment_manager is not None:
@@ -243,6 +285,21 @@ def train(
             log_file.write(csv_line)
             log_file.flush()
 
+        if _use_wandb:
+            _wandb.log(
+                {
+                    "mean_ret":   mean_ret,
+                    "mean_len":   mean_len,
+                    "pi_loss":    stats["pi_loss"],
+                    "vf_loss":    stats["vf_loss"],
+                    "kl":         stats["kl"],
+                    "pi_iters":   stats["pi_updates"],
+                    "n_episodes": n_ep_epoch,
+                    "elapsed_s":  t_elapsed,
+                },
+                step=epoch + 1,
+            )
+
         # ---- Checkpoint -----------------------------------------------------
         if (epoch + 1) % save_every == 0:
             tag    = f"epoch_{epoch + 1:04d}"
@@ -259,6 +316,9 @@ def train(
 
     if log_file is not None:
         log_file.close()
+
+    if _use_wandb:
+        _wandb.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +353,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--save-dir",         default="ppo_checkpoints",
                    help="Checkpoint directory (legacy; ignored when --config is used)")
     p.add_argument("--seed",             type=int,   default=0)
+    p.add_argument("--wandb-project",    default=None,
+                   help="Weights & Biases project name (omit to disable wandb)")
+    p.add_argument("--wandb-entity",     default=None,
+                   help="Weights & Biases entity (username or team; uses default if omitted)")
     return p.parse_args()
 
 
@@ -319,6 +383,10 @@ if __name__ == "__main__":
         )
         print(f"[TRAIN] Experiment folder: {exp_manager.root}")
 
+        wandb_cfg = raw.get("wandb", {})
+        wandb_project = args.wandb_project or wandb_cfg.get("project") or None
+        wandb_entity  = args.wandb_entity  or wandb_cfg.get("entity")  or None
+
         train(
             robot_type      = training_cfg.get("robot_type",      "fr3"),
             steps_per_epoch = training_cfg.get("steps_per_epoch", 4000),
@@ -337,6 +405,8 @@ if __name__ == "__main__":
             common_config = common_config,
             hybrid_config = hybrid_config,
             trajectory    = trajectory,
+            wandb_project = wandb_project,
+            wandb_entity  = wandb_entity,
         )
 
     else:
@@ -358,4 +428,6 @@ if __name__ == "__main__":
             save_every      = args.save_every,
             save_dir        = args.save_dir,
             seed            = args.seed,
+            wandb_project   = args.wandb_project or None,
+            wandb_entity    = args.wandb_entity  or None,
         )

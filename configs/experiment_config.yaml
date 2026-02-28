@@ -14,6 +14,14 @@
 # Optional human-readable label.  If null, a timestamped name is generated.
 experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 
+# ==============================================================================
+# Weights & Biases logging (optional)
+# Set project to enable wandb; leave null to disable.
+# ==============================================================================
+wandb:
+  project: null    # e.g. "ppo-friction-compensation"
+  entity:  null    # e.g. "your-username-or-team" (null = your default entity)
+
 # Root directory under which the experiment folder is created.
 experiments_base_dir: "experiments"
 

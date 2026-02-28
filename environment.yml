@@ -25,3 +25,4 @@ dependencies:
   # pip-only packages
   - pip:
     - mujoco>=3.1.0
+    - wandb>=0.17
