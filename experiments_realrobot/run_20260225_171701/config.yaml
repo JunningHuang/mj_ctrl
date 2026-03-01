@@ -14,16 +14,8 @@
 # Optional human-readable label.  If null, a timestamped name is generated.
 experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 
-# ==============================================================================
-# Weights & Biases logging (optional)
-# Set project to enable wandb; leave null to disable.
-# ==============================================================================
-wandb:
-  project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
-  entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
-
 # Root directory under which the experiment folder is created.
-experiments_base_dir: "experiments"
+experiments_base_dir: "experiments_realrobot"
 
 # ==============================================================================
 # Training hyperparameters
@@ -63,7 +55,7 @@ controller:
 
   # -- Controller parameters --------------------------------------------------
   dt:                   0.001   # Timestep [s] (plotting only)
-  gravity_compensation: true
+  gravity_compensation: false
 
   # How long the trajectory runs [s].  Set large to run continuously.
   motion_duration: 10.0
@@ -102,25 +94,13 @@ hybrid_controller:
 #
 # Only fill in the block matching the active type; the others are ignored.
 # ==============================================================================
-# ==============================================================================
-# Weights & Biases
-# Set wandb_project to enable cloud logging for both training and evaluation.
-# Leave as null to disable W&B entirely (local CSV + plots only).
-# ==============================================================================
-wandb:
-  project: null          # e.g. "mj_ctrl_ppo"  — set to enable W&B logging
-  entity:  null          # W&B username or team; null = use your default entity
-  # Training tags are added automatically: ["train", robot_type]
-  # Eval tags are added automatically:     ["eval",  robot_type, "ppo"/"baseline"]
-
-# ==============================================================================
 trajectory:
   type: "sinusoidal"
 
   # -- Sinusoidal (default) ----------------------------------------------------
   start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
-  frequency: 2.0     # [Hz]
+  frequency: 1     # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
