@@ -102,12 +102,13 @@ def main() -> None:
         # ============================================================
         # Generate target position on the surface
         R_slope = euler_to_rot_matrix(common_config.euler)
-        target_pos = generate_start_position(
-            common_config.circle_radius,
-            common_config.circle_center,
-            common_config.size_z,
-            R_slope
-        )
+        # target_pos = generate_start_position(
+        #     common_config.circle_radius,
+        #     common_config.circle_center,
+        #     common_config.size_z,
+        #     R_slope
+        # )
+        target_pos = common_config.circle_center
 
         # Generate target orientation (end-effector pointing down)
         # q = (w, x, y, z)
