@@ -57,6 +57,12 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+try:
+    import yaml as _yaml
+    _YAML_AVAILABLE = True
+except ImportError:
+    _YAML_AVAILABLE = False
+
 import mujoco
 import numpy as np
 import pinocchio as pino
@@ -316,28 +322,57 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="PPO friction-compensation evaluation (headless or with viewer)"
     )
-    parser.add_argument("--checkpoint", default="ppo_checkpoints/final",
+    parser.add_argument("--config", default=None,
+                        help="Path to an eval config YAML (configs/eval_config.yaml). "
+                             "CLI flags below override any value from the file.")
+    parser.add_argument("--checkpoint", default=None,
                         help="Checkpoint prefix, e.g. ppo_checkpoints/final")
-    parser.add_argument("--robot", default="fr3", choices=["fr3", "kuka", "panda"])
-    parser.add_argument("--circle-duration", type=float, default=10.0,
-                        help="Episode duration in seconds (default: 10.0)")
-    parser.add_argument("--no-ppo", action="store_true",
+    parser.add_argument("--robot", default=None, choices=["fr3", "kuka", "panda"])
+    parser.add_argument("--circle-duration", type=float, default=None,
+                        help="Episode duration in seconds")
+    parser.add_argument("--no-ppo", action="store_true", default=None,
                         help="Baseline: run hybrid controller only, no PPO correction")
-    parser.add_argument("--f-desired", type=float, default=-8.0,
-                        help="Desired contact force in N (default: -8.0)")
-    parser.add_argument("--out-dir", default="ppo_eval_plots",
-                        help="Directory to save output plots (default: ppo_eval_plots/)")
-    parser.add_argument("--viewer", action="store_true",
+    parser.add_argument("--f-desired", type=float, default=None,
+                        help="Desired contact force in N")
+    parser.add_argument("--out-dir", default=None,
+                        help="Directory to save output plots")
+    parser.add_argument("--viewer", action="store_true", default=None,
                         help="Launch the MuJoCo viewer (default: headless)")
     # ---- W&B arguments -------------------------------------------------------
     parser.add_argument("--wandb-project", default=None,
                         help="W&B project name. If not set, wandb logging is disabled.")
     parser.add_argument("--wandb-entity", default=None,
-                        help="W&B entity (username or team). Defaults to your default entity.")
+                        help="W&B entity (username or team).")
     parser.add_argument("--wandb-run-name", default=None,
-                        help="Human-readable name for the W&B run. "
-                             "Defaults to the eval label (checkpoint name + ppo/baseline).")
+                        help="Human-readable name for the W&B run.")
     args = parser.parse_args()
+
+    # ---- Load config file (values become defaults; CLI flags override) -------
+    cfg_model   = {}
+    cfg_episode = {}
+    cfg_output  = {}
+    cfg_wandb   = {}
+    if args.config is not None:
+        if not _YAML_AVAILABLE:
+            raise ImportError("PyYAML is required for --config.  pip install pyyaml")
+        with open(args.config) as fh:
+            raw = _yaml.safe_load(fh)
+        cfg_model   = raw.get("model",   {})
+        cfg_episode = raw.get("episode", {})
+        cfg_output  = raw.get("output",  {})
+        cfg_wandb   = raw.get("wandb",   {})
+
+    # Apply config-file defaults for any flag the user did not pass explicitly.
+    if args.checkpoint     is None: args.checkpoint     = cfg_model.get("checkpoint",   "ppo_checkpoints/final")
+    if args.robot          is None: args.robot          = cfg_model.get("robot",        "fr3")
+    if args.no_ppo         is None: args.no_ppo         = not cfg_model.get("ppo_active", True)
+    if args.circle_duration is None: args.circle_duration = cfg_episode.get("duration_s", 10.0)
+    if args.f_desired      is None: args.f_desired      = cfg_episode.get("f_desired",  -8.0)
+    if args.out_dir        is None: args.out_dir        = cfg_output.get("plots_dir",   "ppo_eval_plots")
+    if args.viewer         is None: args.viewer         = cfg_output.get("viewer",      False)
+    if args.wandb_project  is None: args.wandb_project  = cfg_wandb.get("project",     None)
+    if args.wandb_entity   is None: args.wandb_entity   = cfg_wandb.get("entity",      None)
+    if args.wandb_run_name is None: args.wandb_run_name = cfg_wandb.get("run_name",    None)
 
     label = "baseline_no_ppo" if args.no_ppo else f"ppo_{os.path.basename(args.checkpoint)}"
 
