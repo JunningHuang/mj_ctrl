@@ -101,6 +101,7 @@ hybrid_controller:
 # end_pos) must be set explicitly here.
 #
 # Only fill in the block matching the active type; the others are ignored.
+
 # ==============================================================================
 trajectory:
   type: "sinusoidal"
