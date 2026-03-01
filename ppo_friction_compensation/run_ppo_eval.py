@@ -7,7 +7,11 @@
 #   3. PPO per-joint torque corrections Δτ
 #   4. EE position (X/Y/Z) vs desired position
 #
-# Usage (from repo root ~/mj_ctrl):
+# Usage (recommended — config-file driven, from repo root ~/mj_ctrl):
+#   python -m ppo_friction_compensation.run_ppo_eval \
+#       --config configs/experiment_config.yaml
+#
+# Usage (legacy — individual CLI flags):
 #   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --robot fr3
 #   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --viewer
 #   python run_ppo_eval.py --checkpoint ppo_checkpoints/final --no-ppo
@@ -26,12 +30,26 @@ import matplotlib
 matplotlib.use("Agg")   # headless-safe; always save plots to files
 import matplotlib.pyplot as plt
 
+try:
+    import wandb as _wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _wandb = None
+    _WANDB_AVAILABLE = False
+
 from src import (
     ControllerConfig,
     ControlPhase,
     HybridController,
     HybridControllerConfig,
+    SinusoidalTrajectory,
     get_robot_config,
+)
+from src.experiment_manager import (
+    load_config,
+    build_controller_config,
+    build_hybrid_controller_config,
+    build_trajectory,
 )
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 from mujoco_robot_interface import MujocoRobotInterface, Torques
@@ -181,41 +199,117 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="PPO friction-compensation evaluation (headless or with viewer)"
     )
-    parser.add_argument("--checkpoint", default="ppo_checkpoints/final",
+    # Config-file mode (recommended)
+    parser.add_argument("--config", default=None,
+                        help="Path to unified experiment config YAML. "
+                             "When provided, controller/trajectory/eval settings are "
+                             "read from the file; individual flags below override.")
+    # Individual flags (used as overrides or when --config is not provided)
+    parser.add_argument("--checkpoint", default=None,
                         help="Checkpoint prefix, e.g. ppo_checkpoints/final")
-    parser.add_argument("--robot", default="fr3", choices=["fr3", "kuka", "panda"])
-    parser.add_argument("--circle-duration", type=float, default=10.0,
-                        help="Episode duration in seconds (default: 10.0)")
+    parser.add_argument("--robot", default=None, choices=["fr3", "kuka", "panda"])
+    parser.add_argument("--motion-duration", type=float, default=None,
+                        help="Episode duration in seconds (overrides config)")
     parser.add_argument("--no-ppo", action="store_true",
                         help="Baseline: run hybrid controller only, no PPO correction")
-    parser.add_argument("--f-desired", type=float, default=-8.0,
-                        help="Desired contact force in N (default: -8.0)")
-    parser.add_argument("--out-dir", default="ppo_eval_plots",
-                        help="Directory to save output plots (default: ppo_eval_plots/)")
+    parser.add_argument("--f-desired", type=float, default=None,
+                        help="Desired contact force in N (overrides config)")
+    parser.add_argument("--out-dir", default=None,
+                        help="Directory to save output plots (overrides config)")
     parser.add_argument("--viewer", action="store_true",
                         help="Launch the MuJoCo viewer (default: headless)")
+    parser.add_argument("--wandb-project", default=None,
+                        help="Weights & Biases project name (overrides config)")
+    parser.add_argument("--wandb-entity", default=None,
+                        help="Weights & Biases entity (overrides config)")
     args = parser.parse_args()
 
-    label = "baseline_no_ppo" if args.no_ppo else f"ppo_{os.path.basename(args.checkpoint)}"
+    # ----------------------------------------------------------------
+    # Resolve all settings (config file + CLI overrides)
+    # ----------------------------------------------------------------
+    if args.config is not None:
+        raw          = load_config(args.config)
+        eval_cfg     = raw.get("evaluation", {})
+        training_cfg = raw.get("training", {})
+        hc_raw       = raw.get("hybrid_controller", {})
+        wandb_cfg    = raw.get("wandb", {})
+
+        robot_type = args.robot or training_cfg.get("robot_type", "fr3")
+        checkpoint = args.checkpoint or eval_cfg.get("checkpoint", "ppo_checkpoints/final")
+        f_desired_cfg = hc_raw.get("F_desired_contact", [-8.0])
+        f_desired  = args.f_desired if args.f_desired is not None else float(f_desired_cfg[0])
+        out_dir    = args.out_dir or eval_cfg.get("out_dir", "ppo_eval_plots")
+        viewer     = args.viewer or eval_cfg.get("viewer", False)
+        no_ppo     = args.no_ppo or eval_cfg.get("no_ppo", False)
+
+        common_config = build_controller_config(raw)
+        if args.motion_duration is not None:
+            common_config.motion_duration = args.motion_duration
+        hybrid_config = build_hybrid_controller_config(raw)
+        trajectory    = build_trajectory(raw, common_config)
+
+        wandb_project = args.wandb_project or wandb_cfg.get("project") or None
+        wandb_entity  = args.wandb_entity  or wandb_cfg.get("entity")  or None
+    else:
+        robot_type = args.robot or "fr3"
+        checkpoint = args.checkpoint or "ppo_checkpoints/final"
+        f_desired  = args.f_desired if args.f_desired is not None else -8.0
+        out_dir    = args.out_dir or "ppo_eval_plots"
+        viewer     = args.viewer
+        no_ppo     = args.no_ppo
+
+        common_config = ControllerConfig()
+        if args.motion_duration is not None:
+            common_config.motion_duration = args.motion_duration
+        hybrid_config = HybridControllerConfig()
+        # Default sinusoidal trajectory aligned with the slope geometry
+        trajectory = SinusoidalTrajectory(
+            start_pos = common_config.slope_pos.copy(),
+            amplitude = 0.04,
+            frequency = 2.0,
+            R_slope   = euler_to_rot_matrix(common_config.euler),
+            size_z    = common_config.size_z,
+        )
+
+        wandb_project = args.wandb_project or None
+        wandb_entity  = args.wandb_entity  or None
+
+    label = "baseline_no_ppo" if no_ppo else f"ppo_{os.path.basename(checkpoint)}"
 
     # ----------------------------------------------------------------
     # 1. Robot config
     # ----------------------------------------------------------------
-    robot_cfg = get_robot_config(args.robot)
+    robot_cfg = get_robot_config(robot_type)
     print(f"\n[CONFIG] Robot      : {robot_cfg.name.upper()}")
-    print(f"[CONFIG] Checkpoint : {args.checkpoint}")
-    print(f"[CONFIG] PPO active : {not args.no_ppo}")
-    print(f"[CONFIG] Duration   : {args.circle_duration}s")
-    print(f"[CONFIG] Viewer     : {args.viewer}")
-    print(f"[CONFIG] Output dir : {args.out_dir}/")
+    print(f"[CONFIG] Checkpoint : {checkpoint}")
+    print(f"[CONFIG] PPO active : {not no_ppo}")
+    print(f"[CONFIG] Duration   : {common_config.motion_duration}s")
+    print(f"[CONFIG] F_desired  : {f_desired} N")
+    print(f"[CONFIG] Viewer     : {viewer}")
+    print(f"[CONFIG] Output dir : {out_dir}/")
 
     # ----------------------------------------------------------------
-    # 2. Controller config  (identical to run_hybrid_control_mujoco.py)
+    # 2. Weights & Biases setup
     # ----------------------------------------------------------------
-    common_config = ControllerConfig(circle_duration=args.circle_duration)
-    common_config.gravity_compensation = True
-    hybrid_config = HybridControllerConfig()
-    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
+    _use_wandb = wandb_project is not None and _WANDB_AVAILABLE
+    if wandb_project is not None and not _WANDB_AVAILABLE:
+        print("[WARN] wandb not installed; skipping wandb logging. "
+              "Run: pip install wandb")
+    if _use_wandb:
+        _wandb.init(
+            project = wandb_project,
+            entity  = wandb_entity,
+            name    = f"eval_{label}",
+            config  = {
+                "robot_type":      robot_type,
+                "checkpoint":      checkpoint,
+                "f_desired":       f_desired,
+                "motion_duration": common_config.motion_duration,
+                "no_ppo":          no_ppo,
+                "label":           label,
+            },
+        )
+        print(f"[EVAL] wandb run: {_wandb.run.url}")
 
     dt_physics = common_config.dt   # 1 ms
     dt_action  = 20 * dt_physics    # 20 ms  (action_repeat=20, same as training)
@@ -230,12 +324,12 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 4. Load PPO agent + normalizer
     # ----------------------------------------------------------------
-    if not args.no_ppo:
+    if not no_ppo:
         agent = PPOAgent(obs_dim=18, act_dim=7)
-        agent.load(args.checkpoint)
+        agent.load(checkpoint)
         agent.actor.eval()
         normalizer = WelfordNormalizer(18)
-        normalizer.load(f"{args.checkpoint}_normalizer.npz")
+        normalizer.load(f"{checkpoint}_normalizer.npz")
         print(f"[PPO]   Checkpoint loaded ({normalizer.n} normalizer samples)")
     else:
         agent = normalizer = None
@@ -246,6 +340,7 @@ def main() -> None:
     # ----------------------------------------------------------------
     hybrid_controller = HybridController(
         hybrid_config, common_config,
+        trajectory=trajectory,
         n_joints=robot_cfg.n_joints,
         ee_frame_name=robot_cfg.ee_frame_name,
     )
@@ -265,6 +360,7 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 6. Reset simulation  (same as run_hybrid_control_mujoco.py)
     # ----------------------------------------------------------------
+    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
     mujoco_interface.data.qpos[:len(q0)] = q0
     mujoco_interface.data.qvel[:]        = 0
     mujoco_interface.data.ctrl[mujoco_interface.actuator_ids] = (
@@ -310,12 +406,12 @@ def main() -> None:
             # PPO correction — update every action_repeat=20 physics steps
             if physics_step % 20 == 0:
                 f_z         = float(robot_state.O_F_ext_hat_K[2])
-                force_error = args.f_desired - f_z
+                force_error = f_desired - f_z
 
-                if not args.no_ppo:
+                if not no_ppo:
                     obs_raw, fe   = build_obs_raw(
                         robot_state, pino_model, pino_data, pino_frame_id,
-                        args.f_desired, prev_force_error, dt_action,
+                        f_desired, prev_force_error, dt_action,
                     )
                     obs_norm          = normalizer.normalize(obs_raw)
                     current_delta_tau = get_ppo_action(agent.actor, obs_norm)
@@ -329,6 +425,18 @@ def main() -> None:
                 log_force_actual.append(f_z)
                 log_delta_taus.append(current_delta_tau.copy())
                 log_rewards.append(reward)
+
+                # wandb per-step logging
+                if _use_wandb:
+                    _wandb.log(
+                        {
+                            "force_error":     force_error,
+                            "f_z":             f_z,
+                            "delta_tau_norm":  float(np.linalg.norm(current_delta_tau)),
+                            "reward":          reward,
+                        },
+                        step=len(log_force_errors) - 1,
+                    )
 
             tau_total = tau_hybrid + current_delta_tau
             mujoco_interface.writeOnce(Torques(tau_total.tolist()))
@@ -354,30 +462,30 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 9. Run loop — viewer or headless
     # ----------------------------------------------------------------
-    if args.viewer:
+    if viewer:
         import mujoco.viewer as _mj_viewer
 
         print("\n" + "=" * 60)
         print("PPO FRICTION COMPENSATION EVALUATION  [VIEWER MODE]")
         print("=" * 60)
         print(f"Robot    : {robot_cfg.name.upper()}")
-        print(f"F_desired: {args.f_desired} N")
-        print(f"Duration : {args.circle_duration} s")
+        print(f"F_desired: {f_desired} N")
+        print(f"Duration : {common_config.motion_duration} s")
         print("=" * 60)
         input("Press Enter to start the simulation...")
 
         with mujoco.viewer.launch_passive(
             mujoco_interface.model, mujoco_interface.data,
             show_left_ui=False, show_right_ui=False,
-        ) as viewer:
-            mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer.cam)
+        ) as viewer_handle:
+            mujoco.mjv_defaultFreeCamera(mujoco_interface.model, viewer_handle.cam)
             print(f"\n[EVAL] Running with viewer. Close the window to stop early.")
-            print(f"[EVAL] Episode ends automatically after {args.circle_duration}s\n")
+            print(f"[EVAL] Episode ends automatically after {common_config.motion_duration}s\n")
 
-            while viewer.is_running():
+            while viewer_handle.is_running():
                 step_start = time.time()
                 keep_going = step()
-                viewer.sync()
+                viewer_handle.sync()
                 remaining = dt_physics - (time.time() - step_start)
                 if remaining > 0:
                     time.sleep(remaining)
@@ -401,10 +509,26 @@ def main() -> None:
     print(f"Mean |force_error|  : {np.mean(np.abs(fe_arr)):.3f} N")
     print(f"Max  |force_error|  : {np.max(np.abs(fe_arr)):.3f} N")
     print(f"Std  |force_error|  : {np.std(fe_arr):.3f} N")
-    if not args.no_ppo:
+    if not no_ppo:
         print(f"Mean ||Δτ||         : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
     print(f"Total return        : {sum(log_rewards):.2f}")
     print("=" * 60)
+
+    # wandb evaluation summary
+    if _use_wandb:
+        summary = {
+            "eval/mean_force_error_abs": float(np.mean(np.abs(fe_arr))),
+            "eval/max_force_error_abs":  float(np.max(np.abs(fe_arr))),
+            "eval/std_force_error":      float(np.std(fe_arr)),
+            "eval/total_return":         float(sum(log_rewards)),
+            "eval/ppo_steps":            len(fe_arr),
+        }
+        if not no_ppo:
+            summary["eval/mean_delta_tau_norm"] = float(
+                np.mean(np.linalg.norm(dt_arr, axis=1))
+            )
+        _wandb.log(summary)
+        _wandb.finish()
 
     # ----------------------------------------------------------------
     # 11. Save all plots
@@ -413,11 +537,11 @@ def main() -> None:
         log_force_actual, log_force_errors, log_delta_taus, log_rewards,
         hybrid_controller,
         dt_action, dt_physics,
-        args.f_desired,
+        f_desired,
         label,
-        args.out_dir,
+        out_dir,
     )
-    print(f"\n[EVAL] Done. Plots saved to ./{args.out_dir}/")
+    print(f"\n[EVAL] Done. Plots saved to ./{out_dir}/")
 
 
 if __name__ == "__main__":
