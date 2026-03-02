@@ -43,6 +43,22 @@ training:
   target_kl:        0.01    # Early-stop KL threshold
   save_every:       10      # Save checkpoint every N epochs
 
+  # ---------------------------------------------------------------------------
+  # Phase 1.2 — Trajectory diversity
+  # Set randomize_trajectory: true to sample a new trajectory each episode.
+  # When false, the trajectory defined in the `trajectory` section below is
+  # used for every episode.
+  # ---------------------------------------------------------------------------
+  randomize_trajectory: true
+
+  # ---------------------------------------------------------------------------
+  # Phase 1.3 — Desired-force randomisation
+  # Pool of desired normal contact forces [N] sampled each episode.
+  # Comment out (or set to null) to keep f_desired fixed at
+  # hybrid_controller.F_desired_contact.
+  # ---------------------------------------------------------------------------
+  f_desired_choices: [-5.0, -8.0, -12.0, -15.0]
+
 # ==============================================================================
 # ControllerConfig
 # Contains controller-level parameters AND scene geometry.
@@ -126,21 +142,45 @@ evaluation:
 
 # ==============================================================================
 trajectory:
+  # Active type for *fixed* (non-randomised) runs.
+  # When randomize_trajectory: true this section is ignored during training.
   type: "sinusoidal"
 
-  # -- Sinusoidal (default) ----------------------------------------------------
-  start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
-  amplitude: 0.04    # Half-amplitude [m]
-  frequency: 2.0     # [Hz]
+  # -- Sinusoidal --------------------------------------------------------------
+  # Back-and-forth along a surface-plane axis.  direction_angle selects the
+  # axis: 0 = x, π/2 = y, π/4 = diagonal.
+  start_pos:       [0.5038, 0.0108, 0.0857]
+  amplitude:       0.04    # Half-amplitude [m]
+  frequency:       2.0     # Oscillation frequency [Hz]
+  direction_angle: 0.0     # Axis angle in surface plane [rad]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
-  # center:        [0.5038, 0.0108, 0.0857]   # Center position [m]
-  # radius:        0.05                        # [m]
-  # angular_speed: 3.14159265                  # [rad/s]
+  # center:        [0.5038, 0.0108, 0.0857]
+  # radius:        0.05           # [m]
+  # angular_speed: 3.14159265     # [rad/s]  (tangential speed = radius × angular_speed)
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
   # start_pos: [0.5038, 0.0108, 0.0857]
   # end_pos:   [0.5538, 0.0108, 0.0857]
   # duration:  5.0                          # [s]
+
+  # -- Lissajous (figure-8 and related) ----------------------------------------
+  # Ratio 1:2 → figure-8;  1:1 → circle;  2:3 → complex shape.
+  # type: "lissajous"
+  # center:       [0.5038, 0.0108, 0.0857]
+  # x_amplitude:  0.04     # [m]
+  # y_amplitude:  0.04     # [m]
+  # base_freq:    0.5      # Base frequency [Hz]
+  # freq_ratio_x: 1        # Integer multiplier for x
+  # freq_ratio_y: 2        # Integer multiplier for y
+  # phase:        1.5708   # Phase offset of x [rad]  (π/2 ≈ 1.5708)
+
+  # -- Ramp-and-hold -----------------------------------------------------------
+  # Move to a point (minimum-jerk), hold 2 s, move back, hold 2 s, repeat.
+  # type: "ramp_hold"
+  # start_pos:     [0.5038, 0.0108, 0.0857]
+  # end_pos:       [0.5538, 0.0108, 0.0857]
+  # move_duration: 3.0    # [s] per one-way move
+  # hold_duration: 2.0    # [s] dwell at each waypoint

@@ -27,6 +27,8 @@ from src.trajectories import (
     SinusoidalTrajectory,
     CircleTrajectory,
     LineTrajectory,
+    LissajousTrajectory,
+    RampHoldTrajectory,
 )
 
 
@@ -79,11 +81,12 @@ def build_trajectory(
                 "trajectory.start_pos is required for sinusoidal trajectory"
             )
         return SinusoidalTrajectory(
-            start_pos = np.asarray(traj_raw["start_pos"], dtype=float),
-            amplitude = traj_raw.get("amplitude", 0.04),
-            frequency = traj_raw.get("frequency", 2.0),
-            R_slope   = R_slope,
-            size_z    = size_z,
+            start_pos       = np.asarray(traj_raw["start_pos"], dtype=float),
+            amplitude       = traj_raw.get("amplitude", 0.04),
+            frequency       = traj_raw.get("frequency", 2.0),
+            R_slope         = R_slope,
+            size_z          = size_z,
+            direction_angle = float(traj_raw.get("direction_angle", 0.0)),
         )
 
     elif traj_type == "circle":
@@ -110,10 +113,39 @@ def build_trajectory(
             duration  = traj_raw.get("duration", 5.0),
         )
 
+    elif traj_type == "lissajous":
+        if "center" not in traj_raw:
+            raise ValueError(
+                "trajectory.center is required for lissajous trajectory"
+            )
+        return LissajousTrajectory(
+            center       = np.asarray(traj_raw["center"], dtype=float),
+            x_amplitude  = traj_raw.get("x_amplitude", 0.04),
+            y_amplitude  = traj_raw.get("y_amplitude", 0.04),
+            base_freq    = traj_raw.get("base_freq",    0.5),
+            freq_ratio_x = int(traj_raw.get("freq_ratio_x", 1)),
+            freq_ratio_y = int(traj_raw.get("freq_ratio_y", 2)),
+            phase        = float(traj_raw.get("phase", np.pi / 2.0)),
+            R_slope      = R_slope,
+            size_z       = size_z,
+        )
+
+    elif traj_type == "ramp_hold":
+        if "start_pos" not in traj_raw or "end_pos" not in traj_raw:
+            raise ValueError(
+                "trajectory.start_pos and trajectory.end_pos are required for ramp_hold trajectory"
+            )
+        return RampHoldTrajectory(
+            start_pos     = np.asarray(traj_raw["start_pos"], dtype=float),
+            end_pos       = np.asarray(traj_raw["end_pos"],   dtype=float),
+            move_duration = traj_raw.get("move_duration", 3.0),
+            hold_duration = traj_raw.get("hold_duration", 2.0),
+        )
+
     else:
         raise ValueError(
             f"Unknown trajectory type '{traj_type}'. "
-            "Choose from 'sinusoidal', 'circle', 'line'."
+            "Choose from 'sinusoidal', 'circle', 'line', 'lissajous', 'ramp_hold'."
         )
 
 

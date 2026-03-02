@@ -29,8 +29,9 @@ Episode terminates if |force_error| > 100 N  or  sim_time ≥ 10 s.
 """
 
 import os
+import random
 import sys
-from typing import Optional
+from typing import List, Optional
 
 # Make the repo root importable regardless of the working directory.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,11 +49,24 @@ from src import (
     ControllerConfig,
     HybridController,
     HybridControllerConfig,
+    CircleTrajectory,
+    LissajousTrajectory,
+    RampHoldTrajectory,
     SinusoidalTrajectory,
     Trajectory,
     get_robot_config,
 )
 from utils_libfranka import euler_to_rot_matrix
+
+# Trajectory types available for randomised training
+_TRAJ_TYPES = ("circle", "lissajous", "sinusoidal", "ramp_hold")
+
+# Segment-type classification used for per-segment RMSE tracking:
+#   "curve"  – CircleTrajectory / LissajousTrajectory (always kinetic)
+#   "line"   – SinusoidalTrajectory / RampHoldTrajectory move phase
+#   "hold"   – RampHoldTrajectory hold phase (pure static friction)
+_CURVE_TYPES  = {"circle", "lissajous"}
+_HOLD_TYPES   = {"ramp_hold"}
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +137,8 @@ class HybridControlEnv:
         Episode terminates if |force_error| exceeds this value [N].
     f_desired : float
         Desired normal contact force [N].  Negative = push into surface.
+        Used as the fixed value when ``randomize_trajectory=False``, or as
+        the fallback default when ``f_desired_choices`` is also None.
     approach_max_steps : int
         Hard cap on approach phase physics steps during reset().
     approach_contact_thresh : float
@@ -134,6 +150,13 @@ class HybridControlEnv:
     trajectory : Trajectory or None
         A Trajectory instance (SinusoidalTrajectory, CircleTrajectory, …).
         If None a default SinusoidalTrajectory is constructed.
+        Ignored when ``randomize_trajectory=True``.
+    randomize_trajectory : bool
+        When True (default), re-sample a random trajectory type, parameters,
+        and desired contact force at every episode reset.
+    f_desired_choices : list of float or None
+        Pool of desired-force values [N] to draw from when
+        ``randomize_trajectory=True``.  Defaults to [-5., -8., -12., -15.].
     """
 
     OBS_DIM = 18
@@ -151,14 +174,22 @@ class HybridControlEnv:
         common_config: Optional[ControllerConfig] = None,
         hybrid_config: Optional[HybridControllerConfig] = None,
         trajectory:    Optional[Trajectory] = None,
+        randomize_trajectory: bool = True,
+        f_desired_choices: Optional[List[float]] = None,
     ) -> None:
 
-        self.action_repeat           = action_repeat
-        self.episode_duration        = episode_duration
-        self.force_term_limit        = force_term_limit
-        self.f_desired               = f_desired
-        self.approach_max_steps      = approach_max_steps
-        self.approach_contact_thresh = approach_contact_thresh
+        self.action_repeat            = action_repeat
+        self.episode_duration         = episode_duration
+        self.force_term_limit         = force_term_limit
+        self.f_desired                = f_desired
+        self.approach_max_steps       = approach_max_steps
+        self.approach_contact_thresh  = approach_contact_thresh
+        self.randomize_trajectory     = randomize_trajectory
+        self._f_desired_choices       = (
+            f_desired_choices if f_desired_choices is not None
+            else [-5.0, -8.0, -12.0, -15.0]
+        )
+        self._traj_tag = "sinusoidal"   # updated by _sample_trajectory()
 
         # dt for one PPO action step
         self.dt_action = action_repeat * 0.001   # 0.02 s
@@ -261,19 +292,21 @@ class HybridControlEnv:
 
         Steps
         -----
-        1. Reset MuJoCo to the "home" keyframe (falls back to robot's
+        1. Optionally sample a new trajectory and desired contact force.
+        2. Reset MuJoCo to the "home" keyframe (falls back to robot's
            default q0 if the keyframe is not defined).
-        2. Run the CartesianSpacePDController until the EE reaches the
-           surface-contact starting position or a contact force is
-           detected (max ``approach_max_steps`` physics steps).
         3. Re-initialise the HybridController.
         4. Return the initial (normalised) observation.
         """
 
-        # ---- 1. Reset to home -----------------------------------------------
+        # ---- 1. Sample trajectory / force for this episode ------------------
+        if self.randomize_trajectory:
+            self._sample_trajectory()
+
+        # ---- 2. Reset to home -----------------------------------------------
         self._reset_to_home()
 
-        # # ---- 2. Approach to contact -----------------------------------------
+        # # ---- (optional) Approach to contact ---------------------------------
         # self._run_approach_phase()
 
         # ---- 3. Re-initialise hybrid controller -----------------------------
@@ -349,7 +382,11 @@ class HybridControlEnv:
         # ---- Termination checks ----------------------------------------------
         force_error = float(obs_raw[0])
         done = False
-        info: dict = {}
+        info: dict = {
+            "traj_tag":    self._traj_tag,
+            "segment_type": self._get_segment_type(),
+            "force_error":  force_error,
+        }
 
         if abs(force_error) > self.force_term_limit:
             done = True
@@ -363,6 +400,112 @@ class HybridControlEnv:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _sample_trajectory(self) -> None:
+        """
+        Sample a random trajectory type, parameters, and desired contact force,
+        then update the hybrid controller in-place.
+
+        Called at the start of every episode when ``randomize_trajectory=True``.
+
+        Trajectory family
+        -----------------
+        circle    – varying radius (2–6 cm) and angular speed (≈0.02–0.08 m/s)
+        lissajous – figure-8 and related shapes with frequency ratios 1:1, 1:2, 2:3
+        sinusoidal – back-and-forth along x, y, or diagonal surface axes
+        ramp_hold  – minimum-jerk move + 2 s hold, stressing pure stick-slip
+        """
+        slope_pos = self.common_config.slope_pos
+        R_slope   = euler_to_rot_matrix(self.common_config.euler)
+        size_z    = self.common_config.size_z
+
+        traj_type = random.choice(_TRAJ_TYPES)
+        self._traj_tag = traj_type
+
+        if traj_type == "circle":
+            radius        = random.uniform(0.02, 0.06)
+            # Tangential speed in [0.02, 0.08] m/s → angular_speed = speed / radius
+            angular_speed = random.uniform(0.02, 0.08) / radius
+            traj = CircleTrajectory(
+                center        = slope_pos.copy(),
+                radius        = radius,
+                angular_speed = angular_speed,
+                R_slope       = R_slope,
+                size_z        = size_z,
+            )
+
+        elif traj_type == "lissajous":
+            freq_ratio = random.choice([(1, 1), (1, 2), (2, 3)])
+            amplitude  = random.uniform(0.02, 0.05)
+            base_freq  = random.uniform(0.3, 0.8)
+            traj = LissajousTrajectory(
+                center       = slope_pos.copy(),
+                x_amplitude  = amplitude,
+                y_amplitude  = amplitude,
+                base_freq    = base_freq,
+                freq_ratio_x = freq_ratio[0],
+                freq_ratio_y = freq_ratio[1],
+                phase        = float(np.pi / 2.0),
+                R_slope      = R_slope,
+                size_z       = size_z,
+            )
+
+        elif traj_type == "sinusoidal":
+            amplitude       = random.uniform(0.02, 0.06)
+            frequency       = random.uniform(0.5, 1.5)
+            direction_angle = random.choice([0.0, np.pi / 2.0, np.pi / 4.0])
+            traj = SinusoidalTrajectory(
+                start_pos       = slope_pos.copy(),
+                amplitude       = amplitude,
+                frequency       = frequency,
+                R_slope         = R_slope,
+                size_z          = size_z,
+                direction_angle = direction_angle,
+            )
+
+        else:  # ramp_hold
+            offset    = random.uniform(0.02, 0.05)
+            direction = random.uniform(0.0, 2.0 * np.pi)
+            # Compute waypoints on the surface in the world frame
+            local_offset = np.array([
+                offset * np.cos(direction),
+                offset * np.sin(direction),
+                0.0,
+            ])
+            surface_base = slope_pos + R_slope @ np.array([0.0, 0.0, size_z])
+            traj = RampHoldTrajectory(
+                start_pos     = surface_base.copy(),
+                end_pos       = surface_base + R_slope[:, :2] @ local_offset[:2],
+                move_duration = random.uniform(2.0, 4.0),
+                hold_duration = 2.0,
+            )
+
+        # Hot-swap the trajectory on the already-initialised hybrid controller
+        self.hybrid_controller.trajectory = traj
+
+        # Phase 1.3 — randomise desired contact force
+        f_chosen = random.choice(self._f_desired_choices)
+        self.f_desired = f_chosen
+        self.hybrid_controller.config.F_desired_contact = np.array([f_chosen])
+
+    def _get_segment_type(self) -> str:
+        """
+        Classify the current trajectory step for per-segment RMSE evaluation.
+
+        Returns
+        -------
+        "curve" – CircleTrajectory / LissajousTrajectory (always kinetic friction)
+        "hold"  – RampHoldTrajectory hold phases (pure static friction)
+        "line"  – sinusoidal or RampHoldTrajectory move phases (stick-slip)
+        """
+        if self._traj_tag in _CURVE_TYPES:
+            return "curve"
+        if self._traj_tag in _HOLD_TYPES:
+            # Classify based on current EE speed as a proxy for hold vs. move
+            traj = self.hybrid_controller.trajectory
+            _, vel, _ = traj(self.sim_time)
+            return "hold" if float(np.linalg.norm(vel)) < 1e-6 else "line"
+        return "line"
 
     def _reset_to_home(self) -> None:
         """Reset MuJoCo data to the home keyframe or fallback joint config."""

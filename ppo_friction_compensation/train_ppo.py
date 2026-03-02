@@ -90,6 +90,9 @@ def train(
     common_config=None,
     hybrid_config=None,
     trajectory=None,
+    # Trajectory diversity (Phase 1.1/1.2/1.3)
+    randomize_trajectory:  bool  = True,
+    f_desired_choices: "list | None" = None,
     # Weights & Biases
     wandb_project:   "str | None" = None,
     wandb_entity:    "str | None" = None,
@@ -162,11 +165,15 @@ def train(
 
     # ---- Environment --------------------------------------------------------
     print(f"[TRAIN] Initialising environment (robot={robot_type}) …")
+    print(f"[TRAIN] randomize_trajectory={randomize_trajectory}, "
+          f"f_desired_choices={f_desired_choices or '[-5,-8,-12,-15]'}")
     env = HybridControlEnv(
         robot_type=robot_type,
         common_config=common_config,
         hybrid_config=hybrid_config,
         trajectory=trajectory,
+        randomize_trajectory=randomize_trajectory,
+        f_desired_choices=f_desired_choices,
     )
 
     # ---- Agent + buffer -----------------------------------------------------
@@ -193,7 +200,7 @@ def train(
     if log_file is not None:
         header = (
             "epoch,mean_ret,mean_len,pi_loss,vf_loss,kl,pi_iters,"
-            "n_episodes,elapsed_s\n"
+            "n_episodes,rmse_curve,rmse_line,rmse_hold,elapsed_s\n"
         )
         log_file.write(header)
         log_file.flush()
@@ -213,12 +220,21 @@ def train(
         ep_rets: list = []
         ep_lens: list = []
 
+        # Per-segment squared-error accumulators (for RMSE at epoch end)
+        seg_sq: dict = {"curve": [], "line": [], "hold": []}
+
         # ---- Data collection ------------------------------------------------
         for t in range(steps_per_epoch):
             act, logp, val = agent.step(obs)
 
             obs_next, rew, done, info = env.step(act)
             buf.store(obs, act, rew, val, logp)
+
+            # Accumulate squared force error per segment type
+            seg = info.get("segment_type", "line")
+            fe  = info.get("force_error",  0.0)
+            if seg in seg_sq:
+                seg_sq[seg].append(fe ** 2)
 
             obs      = obs_next
             ep_ret  += rew
@@ -240,10 +256,12 @@ def train(
                     ep_lens.append(ep_len)
                     ep_count += 1
                     term_reason = info.get("termination", "unknown")
+                    traj_tag    = info.get("traj_tag",    "?")
                     print(
                         f"  Episode {ep_count:4d} | "
                         f"return={ep_ret:9.2f} | "
                         f"len={ep_len:4d} | "
+                        f"traj={traj_tag:10s} | "
                         f"reason={term_reason}"
                     )
 
@@ -262,6 +280,13 @@ def train(
         mean_len   = float(np.mean(ep_lens)) if ep_lens else float("nan")
         n_ep_epoch = len(ep_rets)
 
+        def _rmse(sq_list):
+            return float(np.sqrt(np.mean(sq_list))) if sq_list else float("nan")
+
+        rmse_curve = _rmse(seg_sq["curve"])
+        rmse_line  = _rmse(seg_sq["line"])
+        rmse_hold  = _rmse(seg_sq["hold"])
+
         line = (
             f"Epoch {epoch + 1:4d}/{epochs} | "
             f"MeanRet={mean_ret:9.2f} | "
@@ -271,6 +296,7 @@ def train(
             f"KL={stats['kl']:.5f} | "
             f"pi_iters={stats['pi_updates']:2d} | "
             f"eps={n_ep_epoch:3d} | "
+            f"RMSE(curve={rmse_curve:.3f} line={rmse_line:.3f} hold={rmse_hold:.3f}) | "
             f"elapsed={t_elapsed:.1f}s"
         )
         print(line)
@@ -280,7 +306,8 @@ def train(
                 f"{epoch + 1},{mean_ret:.4f},{mean_len:.1f},"
                 f"{stats['pi_loss']:.6f},{stats['vf_loss']:.6f},"
                 f"{stats['kl']:.6f},{stats['pi_updates']},"
-                f"{n_ep_epoch},{t_elapsed:.2f}\n"
+                f"{n_ep_epoch},{rmse_curve:.4f},{rmse_line:.4f},{rmse_hold:.4f},"
+                f"{t_elapsed:.2f}\n"
             )
             log_file.write(csv_line)
             log_file.flush()
@@ -288,14 +315,17 @@ def train(
         if _use_wandb:
             _wandb.log(
                 {
-                    "mean_ret":   mean_ret,
-                    "mean_len":   mean_len,
-                    "pi_loss":    stats["pi_loss"],
-                    "vf_loss":    stats["vf_loss"],
-                    "kl":         stats["kl"],
-                    "pi_iters":   stats["pi_updates"],
-                    "n_episodes": n_ep_epoch,
-                    "elapsed_s":  t_elapsed,
+                    "mean_ret":    mean_ret,
+                    "mean_len":    mean_len,
+                    "pi_loss":     stats["pi_loss"],
+                    "vf_loss":     stats["vf_loss"],
+                    "kl":          stats["kl"],
+                    "pi_iters":    stats["pi_updates"],
+                    "n_episodes":  n_ep_epoch,
+                    "rmse_curve":  rmse_curve,
+                    "rmse_line":   rmse_line,
+                    "rmse_hold":   rmse_hold,
+                    "elapsed_s":   t_elapsed,
                 },
                 step=epoch + 1,
             )
@@ -388,25 +418,27 @@ if __name__ == "__main__":
         wandb_entity  = args.wandb_entity  or wandb_cfg.get("entity")  or None
 
         train(
-            robot_type      = training_cfg.get("robot_type",      "fr3"),
-            steps_per_epoch = training_cfg.get("steps_per_epoch", 4000),
-            epochs          = training_cfg.get("epochs",          200),
-            gamma           = training_cfg.get("gamma",           0.99),
-            lam             = training_cfg.get("lam",             0.97),
-            clip_ratio      = training_cfg.get("clip_ratio",      0.2),
-            pi_lr           = training_cfg.get("pi_lr",           3e-4),
-            vf_lr           = training_cfg.get("vf_lr",           1e-3),
-            train_pi_iters  = training_cfg.get("train_pi_iters",  80),
-            train_v_iters   = training_cfg.get("train_v_iters",   80),
-            target_kl       = training_cfg.get("target_kl",       0.01),
-            save_every      = training_cfg.get("save_every",      10),
-            seed            = training_cfg.get("seed",            0),
-            experiment_manager = exp_manager,
-            common_config = common_config,
-            hybrid_config = hybrid_config,
-            trajectory    = trajectory,
-            wandb_project = wandb_project,
-            wandb_entity  = wandb_entity,
+            robot_type           = training_cfg.get("robot_type",           "fr3"),
+            steps_per_epoch      = training_cfg.get("steps_per_epoch",      4000),
+            epochs               = training_cfg.get("epochs",               200),
+            gamma                = training_cfg.get("gamma",                0.99),
+            lam                  = training_cfg.get("lam",                  0.97),
+            clip_ratio           = training_cfg.get("clip_ratio",           0.2),
+            pi_lr                = training_cfg.get("pi_lr",                3e-4),
+            vf_lr                = training_cfg.get("vf_lr",                1e-3),
+            train_pi_iters       = training_cfg.get("train_pi_iters",       80),
+            train_v_iters        = training_cfg.get("train_v_iters",        80),
+            target_kl            = training_cfg.get("target_kl",            0.01),
+            save_every           = training_cfg.get("save_every",           10),
+            seed                 = training_cfg.get("seed",                 0),
+            randomize_trajectory = training_cfg.get("randomize_trajectory", True),
+            f_desired_choices    = training_cfg.get("f_desired_choices",    None),
+            experiment_manager   = exp_manager,
+            common_config        = common_config,
+            hybrid_config        = hybrid_config,
+            trajectory           = trajectory,
+            wandb_project        = wandb_project,
+            wandb_entity         = wandb_entity,
         )
 
     else:
