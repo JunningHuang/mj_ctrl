@@ -95,6 +95,28 @@ hybrid_controller:
   max_delta_tau:     1.0      # Max torque change per timestep [Nm]
 
 # ==============================================================================
+# Evaluation
+# Parameters used by ppo_friction_compensation/run_ppo_eval.py.
+# robot_type is read from training.robot_type, f_desired from
+# hybrid_controller.F_desired_contact, and motion_duration from
+# controller.motion_duration.  Trajectory is read from the trajectory section.
+# ==============================================================================
+evaluation:
+  # Path to the PPO checkpoint prefix (no file extension).
+  # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
+  # and <checkpoint>_normalizer.npz.
+  checkpoint: "experiments/run_20260301_003832/checkpoints/final"
+
+  # Directory where evaluation plots are saved.
+  out_dir: "ppo_eval_plots"
+
+  # Launch the interactive MuJoCo viewer.  Set false for headless evaluation.
+  viewer: false
+
+  # Baseline mode: run the hybrid controller without PPO torque corrections.
+  no_ppo: false
+
+# ==============================================================================
 # Trajectory
 # Trajectory-specific parameters only.  size_z is read automatically from
 # the controller section above.  All position parameters (start_pos, center,
