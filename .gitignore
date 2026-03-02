@@ -8,3 +8,10 @@ __pycache__/
 .idea/modules.xml
 .idea/vcs.xml
 .idea/inspectionProfiles/profiles_settings.xml
+
+wandb/**
+experiments/*/checkpoints/*epoch*.pt
+experiments/*/checkpoints/*epoch*.npz
+experiments/*/plots
+experiments/*/config.yaml
+franka_fr3/table_slope_auto.xml

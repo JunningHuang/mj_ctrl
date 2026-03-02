@@ -1,34 +1,48 @@
+// {
+//   "version": "0.2.0",
+//   "configurations": [
+//     {
+//       "name": "Python: Current File",
+//       "type": "debugpy",
+//       "request": "launch",
+//       "program": "${file}",
+//       "console": "integratedTerminal",
+//       "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe",
+//       "cwd": "${fileDirname}",
+//       "env": {
+//         "PYTHONPATH": "${workspaceFolder}"
+//       }
+//     },
+//     {
+//       "name": "Python: Current File (External Terminal)",
+//       "type": "debugpy",
+//       "request": "launch",
+//       "program": "${file}",
+//       "console": "externalTerminal",
+//       "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe",
+//       "cwd": "${workspaceFolder}"
+//     },
+//     {
+//       "name": "Python: Module",
+//       "type": "debugpy",
+//       "request": "launch",
+//       "module": "enter-your-module-name-here",
+//       "console": "integratedTerminal",
+//       "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe"
+//     }
+//   ]
+// }
+
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Python: Current File",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${file}",
-      "console": "integratedTerminal",
-      "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe",
-      "cwd": "${fileDirname}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Python: Current File (External Terminal)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${file}",
-      "console": "externalTerminal",
-      "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Python: Module",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "enter-your-module-name-here",
-      "console": "integratedTerminal",
-      "python": "C:\\Users\\11452\\miniconda3\\envs\\hybrid_ctrl\\python.exe"
-    }
-  ]
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug PPO Eval",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "ppo_friction_compensation.run_ppo_eval",
+            "args": ["--config", "configs/experiment_config.yaml"],
+            "console": "integratedTerminal"
+        }
+    ]
 }

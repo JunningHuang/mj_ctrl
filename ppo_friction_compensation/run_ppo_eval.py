@@ -29,6 +29,7 @@ import torch
 import matplotlib
 matplotlib.use("Agg")   # headless-safe; always save plots to files
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 try:
     import wandb as _wandb
@@ -274,7 +275,7 @@ def main() -> None:
         wandb_project = args.wandb_project or None
         wandb_entity  = args.wandb_entity  or None
 
-    label = "baseline_no_ppo" if no_ppo else f"ppo_{os.path.basename(checkpoint)}"
+    label = "baseline_no_ppo" if no_ppo else f"ppo_{Path(checkpoint).parts[-3]}"
 
     # ----------------------------------------------------------------
     # 1. Robot config
@@ -299,6 +300,7 @@ def main() -> None:
         _wandb.init(
             project = wandb_project,
             entity  = wandb_entity,
+            job_type = "evaluation",
             name    = f"eval_{label}",
             config  = {
                 "robot_type":      robot_type,
