@@ -14,6 +14,9 @@
 # Optional human-readable label.  If null, a timestamped name is generated.
 experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 
+# Root directory under which the experiment folder is created.
+experiments_base_dir: "experiments"
+
 # ==============================================================================
 # Weights & Biases logging (optional)
 # Set project to enable wandb; leave null to disable.
@@ -22,16 +25,13 @@ wandb:
   project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
   entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
 
-# Root directory under which the experiment folder is created.
-experiments_base_dir: "experiments"
-
 # ==============================================================================
 # Training hyperparameters
 # ==============================================================================
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           200
+  epochs:           3
   steps_per_epoch:  4000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
@@ -41,7 +41,7 @@ training:
   train_pi_iters:   80      # Actor gradient steps per epoch
   train_v_iters:    80      # Critic gradient steps per epoch
   target_kl:        0.01    # Early-stop KL threshold
-  save_every:       10      # Save checkpoint every N epochs
+  save_every:       3      # Save checkpoint every N epochs
 
 # ==============================================================================
 # ControllerConfig
@@ -95,35 +95,12 @@ hybrid_controller:
   max_delta_tau:     1.0      # Max torque change per timestep [Nm]
 
 # ==============================================================================
-# Evaluation
-# Parameters used by ppo_friction_compensation/run_ppo_eval.py.
-# robot_type is read from training.robot_type, f_desired from
-# hybrid_controller.F_desired_contact, and motion_duration from
-# controller.motion_duration.  Trajectory is read from the trajectory section.
-# ==============================================================================
-evaluation:
-  # Path to the PPO checkpoint prefix (no file extension).
-  # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
-  # and <checkpoint>_normalizer.npz.
-  checkpoint: "ppo_checkpoints/final"
-
-  # Directory where evaluation plots are saved.
-  out_dir: "ppo_eval_plots"
-
-  # Launch the interactive MuJoCo viewer.  Set false for headless evaluation.
-  viewer: false
-
-  # Baseline mode: run the hybrid controller without PPO torque corrections.
-  no_ppo: false
-
-# ==============================================================================
 # Trajectory
 # Trajectory-specific parameters only.  size_z is read automatically from
 # the controller section above.  All position parameters (start_pos, center,
 # end_pos) must be set explicitly here.
 #
 # Only fill in the block matching the active type; the others are ignored.
-
 # ==============================================================================
 trajectory:
   type: "sinusoidal"
