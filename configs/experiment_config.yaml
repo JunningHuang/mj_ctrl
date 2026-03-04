@@ -157,6 +157,12 @@ evaluation:
   # Baseline mode: run the hybrid controller without PPO torque corrections.
   no_ppo: false
 
+  # Surface friction coefficient used during evaluation.
+  # Sets the sliding friction of the contact surface (attachment_collision
+  # geom, first friction parameter).  Range [0.3, 1.0]; default 1.0 matches
+  # the XML default.  Override with --surface-friction on the CLI.
+  surface_friction: 0.7
+
 # ==============================================================================
 # Trajectory
 # Trajectory-specific parameters only.  size_z is read automatically from
