@@ -45,7 +45,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from ppo_friction_compensation.env_wrapper import HybridControlEnv
+from ppo_friction_compensation.env_wrapper import HybridControlEnv, WelfordNormalizer
+from ppo_friction_compensation.parallel_rollout import ParallelRolloutCollector
 from ppo_friction_compensation.ppo_agent import PPOAgent
 from ppo_friction_compensation.rollout_buffer import RolloutBuffer
 from src.experiment_manager import (
@@ -93,6 +94,8 @@ def train(
     # Trajectory diversity (Phase 1.1/1.2/1.3)
     randomize_trajectory:  bool  = True,
     f_desired_choices: "list | None" = None,
+    # Parallel rollout collection
+    num_workers:     int   = 1,
     # Weights & Biases
     wandb_project:   "str | None" = None,
     wandb_entity:    "str | None" = None,
@@ -119,6 +122,12 @@ def train(
         Passed through to HybridControlEnv.
     trajectory : Trajectory or None
         Passed through to HybridControlEnv.
+    num_workers : int
+        Number of parallel rollout workers.  When > 1 the data-collection
+        phase is parallelised across ``num_workers`` independent MuJoCo
+        processes (each collects ``steps_per_epoch // num_workers`` steps).
+        The PPO update itself always runs in the main process.  Set to 1
+        (default) to use the original single-process loop.
     """
     _set_seed(seed)
 
@@ -167,13 +176,15 @@ def train(
     print(f"[TRAIN] Initialising environment (robot={robot_type}) …")
     print(f"[TRAIN] randomize_trajectory={randomize_trajectory}, "
           f"f_desired_choices={f_desired_choices or '[-5,-8,-12,-15]'}")
-    env = HybridControlEnv(
-        robot_type=robot_type,
-        common_config=common_config,
-        hybrid_config=hybrid_config,
-        trajectory=trajectory,
-        randomize_trajectory=randomize_trajectory,
-        f_desired_choices=f_desired_choices,
+
+    # Keyword arguments shared between the main-process env and all workers
+    _env_kwargs = dict(
+        robot_type           = robot_type,
+        common_config        = common_config,
+        hybrid_config        = hybrid_config,
+        trajectory           = trajectory,
+        randomize_trajectory = randomize_trajectory,
+        f_desired_choices    = f_desired_choices,
     )
 
     # ---- Agent + buffer -----------------------------------------------------
@@ -187,13 +198,37 @@ def train(
         train_v_iters  = train_v_iters,
         target_kl      = target_kl,
     )
-    buf = RolloutBuffer(
-        obs_dim = HybridControlEnv.OBS_DIM,
-        act_dim = HybridControlEnv.ACT_DIM,
-        size    = steps_per_epoch,
-        gamma   = gamma,
-        lam     = lam,
-    )
+
+    # ---- Parallel vs. single-process setup ----------------------------------
+    if num_workers > 1:
+        print(f"[TRAIN] Parallel rollout: {num_workers} workers × "
+              f"{steps_per_epoch // num_workers} steps = "
+              f"{num_workers * (steps_per_epoch // num_workers)} steps/epoch")
+        # Normaliser lives in the main process (updated from merged worker stats)
+        normalizer = WelfordNormalizer(HybridControlEnv.OBS_DIM)
+        collector  = ParallelRolloutCollector(
+            num_workers     = num_workers,
+            steps_per_epoch = steps_per_epoch,
+            obs_dim         = HybridControlEnv.OBS_DIM,
+            act_dim         = HybridControlEnv.ACT_DIM,
+            gamma           = gamma,
+            lam             = lam,
+            env_kwargs      = _env_kwargs,
+            seed            = seed,
+        )
+        env = None
+        buf = None
+    else:
+        env = HybridControlEnv(**_env_kwargs)
+        normalizer = env.normalizer          # alias – same object
+        collector  = None
+        buf = RolloutBuffer(
+            obs_dim = HybridControlEnv.OBS_DIM,
+            act_dim = HybridControlEnv.ACT_DIM,
+            size    = steps_per_epoch,
+            gamma   = gamma,
+            lam     = lam,
+        )
 
     # ---- Log file setup -----------------------------------------------------
     log_file = open(log_path, "w") if log_path is not None else None
@@ -205,9 +240,12 @@ def train(
         log_file.write(header)
         log_file.flush()
 
-    # ---- Initial reset -------------------------------------------------------
-    print("[TRAIN] Running initial environment reset …")
-    obs = env.reset()
+    # ---- Initial reset (single-worker mode only) ----------------------------
+    if env is not None:
+        print("[TRAIN] Running initial environment reset …")
+        obs = env.reset()
+    else:
+        obs = None      # workers manage their own obs
 
     # Running episode statistics
     ep_ret   = 0.0
@@ -224,55 +262,90 @@ def train(
         seg_sq: dict = {"curve": [], "line": [], "hold": []}
 
         # ---- Data collection ------------------------------------------------
-        for t in range(steps_per_epoch):
-            act, logp, val = agent.step(obs)
+        if collector is not None:
+            # ---- Parallel path ----------------------------------------------
+            (
+                data,
+                merged_norm_stats,
+                ep_rets,
+                ep_lens,
+                ep_info_list,
+                seg_sq,
+            ) = collector.collect(agent)
 
-            obs_next, rew, done, info = env.step(act)
-            buf.store(obs, act, rew, val, logp)
+            # Sync the main-process normaliser from merged worker stats
+            # (used for checkpointing; workers keep their own copies live)
+            normalizer.n    = merged_norm_stats["n"]
+            normalizer.mean = merged_norm_stats["mean"]
+            normalizer.M2   = merged_norm_stats["M2"]
 
-            # Accumulate squared force error per segment type
-            seg = info.get("segment_type", "line")
-            fe  = info.get("force_error",  0.0)
-            if seg in seg_sq:
-                seg_sq[seg].append(fe ** 2)
+            ep_count += len(ep_rets)
 
-            obs      = obs_next
-            ep_ret  += rew
-            ep_len  += 1
+            # Print per-episode summaries (batched after collection)
+            base = ep_count - len(ep_rets)
+            for i, (ret, length, ep_info) in enumerate(
+                zip(ep_rets, ep_lens, ep_info_list)
+            ):
+                print(
+                    f"  Episode {base + i + 1:4d} | "
+                    f"return={ret:9.2f} | "
+                    f"len={length:4d} | "
+                    f"traj={ep_info['traj_tag']:10s} | "
+                    f"reason={ep_info['termination']}"
+                )
 
-            epoch_ended = (t == steps_per_epoch - 1)
+        else:
+            # ---- Single-process path (original loop) ------------------------
+            for t in range(steps_per_epoch):
+                act, logp, val = agent.step(obs)
 
-            if done or epoch_ended:
-                if epoch_ended and not done:
-                    # Bootstrap from current state value
-                    _, _, last_val = agent.step(obs)
-                else:
-                    last_val = 0.0
+                obs_next, rew, done, info = env.step(act)
+                buf.store(obs, act, rew, val, logp)
 
-                buf.finish_episode(last_val)
+                # Accumulate squared force error per segment type
+                seg = info.get("segment_type", "line")
+                fe  = info.get("force_error",  0.0)
+                if seg in seg_sq:
+                    seg_sq[seg].append(fe ** 2)
 
-                if done:
-                    ep_rets.append(ep_ret)
-                    ep_lens.append(ep_len)
-                    ep_count += 1
-                    term_reason = info.get("termination", "unknown")
-                    traj_tag    = info.get("traj_tag",    "?")
-                    print(
-                        f"  Episode {ep_count:4d} | "
-                        f"return={ep_ret:9.2f} | "
-                        f"len={ep_len:4d} | "
-                        f"traj={traj_tag:10s} | "
-                        f"reason={term_reason}"
-                    )
+                obs      = obs_next
+                ep_ret  += rew
+                ep_len  += 1
 
-                ep_ret = 0.0
-                ep_len = 0
-                obs = env.reset()
+                epoch_ended = (t == steps_per_epoch - 1)
+
+                if done or epoch_ended:
+                    if epoch_ended and not done:
+                        # Bootstrap from current state value
+                        _, _, last_val = agent.step(obs)
+                    else:
+                        last_val = 0.0
+
+                    buf.finish_episode(last_val)
+
+                    if done:
+                        ep_rets.append(ep_ret)
+                        ep_lens.append(ep_len)
+                        ep_count += 1
+                        term_reason = info.get("termination", "unknown")
+                        traj_tag    = info.get("traj_tag",    "?")
+                        print(
+                            f"  Episode {ep_count:4d} | "
+                            f"return={ep_ret:9.2f} | "
+                            f"len={ep_len:4d} | "
+                            f"traj={traj_tag:10s} | "
+                            f"reason={term_reason}"
+                        )
+
+                    ep_ret = 0.0
+                    ep_len = 0
+                    obs = env.reset()
+
+            data = buf.get()
+            buf.clear()
 
         # ---- PPO update -----------------------------------------------------
-        data  = buf.get()
         stats = agent.update(data)
-        buf.clear()
 
         # ---- Logging --------------------------------------------------------
         t_elapsed  = time.time() - t_epoch_start
@@ -335,13 +408,15 @@ def train(
             tag    = f"epoch_{epoch + 1:04d}"
             prefix = os.path.join(ckpt_dir, tag)
             agent.save(prefix)
-            env.normalizer.save(f"{prefix}_normalizer.npz")
+            normalizer.save(f"{prefix}_normalizer.npz")
             print(f"  [SAVE] Checkpoint → {prefix}_{{actor,critic}}.pt + normalizer.npz")
 
     # ---- Final save ---------------------------------------------------------
+    if collector is not None:
+        collector.close()
     prefix = os.path.join(ckpt_dir, "final")
     agent.save(prefix)
-    env.normalizer.save(f"{prefix}_normalizer.npz")
+    normalizer.save(f"{prefix}_normalizer.npz")
     print(f"\n[TRAIN] Done. Final model → {prefix}_{{actor,critic}}.pt")
 
     if log_file is not None:
@@ -387,6 +462,8 @@ def _parse_args() -> argparse.Namespace:
                    help="Weights & Biases project name (omit to disable wandb)")
     p.add_argument("--wandb-entity",     default=None,
                    help="Weights & Biases entity (username or team; uses default if omitted)")
+    p.add_argument("--num-workers",      type=int, default=1,
+                   help="Number of parallel rollout workers (default: 1 = single-process)")
     return p.parse_args()
 
 
@@ -433,6 +510,7 @@ if __name__ == "__main__":
             seed                 = training_cfg.get("seed",                 0),
             randomize_trajectory = training_cfg.get("randomize_trajectory", True),
             f_desired_choices    = training_cfg.get("f_desired_choices",    None),
+            num_workers          = training_cfg.get("num_workers", args.num_workers),
             experiment_manager   = exp_manager,
             common_config        = common_config,
             hybrid_config        = hybrid_config,
@@ -460,6 +538,7 @@ if __name__ == "__main__":
             save_every      = args.save_every,
             save_dir        = args.save_dir,
             seed            = args.seed,
+            num_workers     = args.num_workers,
             wandb_project   = args.wandb_project or None,
             wandb_entity    = args.wandb_entity  or None,
         )
