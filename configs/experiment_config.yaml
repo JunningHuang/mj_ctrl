@@ -51,7 +51,7 @@ training:
   # 1  = single-process (original behaviour, no subprocess overhead)
   # 4  = recommended starting point on a multi-core machine
   # ---------------------------------------------------------------------------
-  num_workers: 1
+  num_workers: 4
 
   # ---------------------------------------------------------------------------
   # Phase 1.2 — Trajectory diversity
@@ -92,7 +92,7 @@ controller:
   gravity_compensation: true
 
   # How long the trajectory runs [s].  Set large to run continuously.
-  motion_duration: 10.0
+  motion_duration: 4.0 #10.0
 
   # Distance threshold for is_target_reached() [m].
   position_tolerance: 0.01
@@ -131,7 +131,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments/run_20260302_185053/checkpoints/final"
+  checkpoint: "experiments/run_20260304_115524/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
