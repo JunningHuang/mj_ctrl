@@ -42,6 +42,7 @@ training:
   train_v_iters:    80      # Critic gradient steps per epoch
   target_kl:        0.01    # Early-stop KL threshold
   save_every:       3      # Save checkpoint every N epochs
+  num_workers:      1      # Parallel rollout workers (1 = single-process)
 
 # ==============================================================================
 # ControllerConfig

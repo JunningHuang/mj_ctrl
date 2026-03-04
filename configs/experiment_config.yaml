@@ -44,6 +44,16 @@ training:
   save_every:       10      # Save checkpoint every N epochs
 
   # ---------------------------------------------------------------------------
+  # Parallel rollout collection
+  # Number of independent MuJoCo worker processes for data collection.
+  # Each worker collects steps_per_epoch // num_workers steps in parallel;
+  # the PPO update always runs in the main process.
+  # 1  = single-process (original behaviour, no subprocess overhead)
+  # 4  = recommended starting point on a multi-core machine
+  # ---------------------------------------------------------------------------
+  num_workers: 1
+
+  # ---------------------------------------------------------------------------
   # Phase 1.2 — Trajectory diversity
   # Set randomize_trajectory: true to sample a new trajectory each episode.
   # When false, the trajectory defined in the `trajectory` section below is
