@@ -1,4 +1,6 @@
 import os
+from typing import Dict, List
+
 import numpy as np
 
 
@@ -215,3 +217,203 @@ def plot_hybrid_results(
         plt.tight_layout()
         fig.savefig(f"{plot_dir}/hybrid_force_decomposition_{robot_name}.png")
     print(f"[PLOT] Results saved to plots/ directory")
+
+
+# ==============================================================================
+# Fixed-point experiment comparison plots
+# ==============================================================================
+
+def plot_force_z_comparison(
+    results: List[Dict],
+    dt: float,
+    labels: List[str],
+    title: str = "Contact Force Z — Comparison",
+    out_dir: str = "plots/fixed_point",
+    filename: str = "force_z_comparison.png",
+) -> None:
+    """
+    Overlay contact-force-Z traces from multiple fixed-point runs.
+
+    Parameters
+    ----------
+    results : list of dicts, each with keys:
+                'contact_forces'  – np.ndarray (T, D) or (T,)
+                'desired_forces'  – np.ndarray (T, 1) or scalar repeated
+    dt      : controller timestep [s]
+    labels  : one label string per result dict
+    title   : figure title
+    out_dir : directory to save the figure
+    filename: output file name
+    """
+    import matplotlib.pyplot as plt
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    for res, label in zip(results, labels):
+        cf = np.array(res["contact_forces"])
+        if cf.ndim == 2:
+            cf_z = cf[:, 0]   # hybrid controller logs scalar force in constraint dim
+        else:
+            cf_z = cf
+        t = np.arange(len(cf_z)) * dt
+        ax.plot(t, cf_z, linewidth=1.5, label=label)
+
+    # Desired force reference (take from last result; same for all in suite 2)
+    if results:
+        df = np.array(results[0]["desired_forces"])
+        if df.ndim == 2:
+            df_val = df[:, 0]
+        else:
+            df_val = df
+        t_ref = np.arange(len(df_val)) * dt
+        ax.plot(t_ref, df_val, "k--", linewidth=1.2, label="Desired force")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Contact Force Z (N)")
+    ax.set_title(title)
+    ax.legend(loc="best")
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    out_path = os.path.join(out_dir, filename)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"[PLOT] Force-Z comparison saved to {out_path}")
+
+
+def plot_position_z_comparison(
+    results: List[Dict],
+    dt: float,
+    labels: List[str],
+    title: str = "Position Z Error — Comparison",
+    out_dir: str = "plots/fixed_point",
+    filename: str = "position_z_comparison.png",
+) -> None:
+    """
+    Overlay end-effector Z position and Z position error for multiple runs.
+
+    Parameters
+    ----------
+    results : list of dicts, each with:
+                'ee_positions'     – np.ndarray (T, 3)
+                'target_positions' – np.ndarray (T, 3)
+    dt      : controller timestep [s]
+    labels  : one label string per result dict
+    title   : figure title
+    """
+    import matplotlib.pyplot as plt
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+    fig.suptitle(title, fontsize=13)
+
+    for res, label in zip(results, labels):
+        ee  = np.array(res["ee_positions"])
+        tgt = np.array(res["target_positions"])
+        if ee.ndim != 2 or ee.shape[1] < 3:
+            continue
+        t = np.arange(len(ee)) * dt
+        axes[0].plot(t, ee[:, 2],  linewidth=1.5, label=f"EE z  ({label})")
+        axes[0].plot(t, tgt[:, 2], linestyle="--", linewidth=1.2, label=f"Target z ({label})")
+        axes[1].plot(t, ee[:, 2] - tgt[:, 2], linewidth=1.5, label=label)
+
+    axes[0].set_ylabel("Z position (m)")
+    axes[0].legend(loc="best", fontsize=7)
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].set_ylabel("Z error: EE − target (m)")
+    axes[1].axhline(0, color="k", linewidth=0.8, linestyle="--")
+    axes[1].legend(loc="best", fontsize=8)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_xlabel("Time (s)")
+
+    fig.tight_layout()
+    out_path = os.path.join(out_dir, filename)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"[PLOT] Position-Z comparison saved to {out_path}")
+
+
+def plot_force_and_position_summary(
+    results: List[Dict],
+    dt: float,
+    labels: List[str],
+    title: str = "Force & Position Summary",
+    out_dir: str = "plots/fixed_point",
+    filename: str = "force_position_summary.png",
+) -> None:
+    """
+    4-panel summary: force Z, force Z error, position Z, position Z error.
+
+    Parameters
+    ----------
+    results : list of dicts with keys 'contact_forces', 'desired_forces',
+              'ee_positions', 'target_positions'
+    """
+    import matplotlib.pyplot as plt
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    fig, axes = plt.subplots(4, 1, figsize=(12, 14), sharex=True)
+    fig.suptitle(title, fontsize=13)
+
+    for res, label in zip(results, labels):
+        cf  = np.array(res["contact_forces"])
+        df  = np.array(res["desired_forces"])
+        ee  = np.array(res["ee_positions"])
+        tgt = np.array(res["target_positions"])
+
+        cf_z  = cf[:, 0]  if cf.ndim  == 2 else cf
+        df_z  = df[:, 0]  if df.ndim  == 2 else df
+        T = len(cf_z)
+        t = np.arange(T) * dt
+
+        # Panel 1: contact force Z
+        axes[0].plot(t, cf_z, linewidth=1.5, label=label)
+
+        # Panel 2: force error = contact - desired
+        axes[1].plot(t, cf_z - df_z[:T], linewidth=1.5, label=label)
+
+        if ee.ndim == 2 and ee.shape[1] >= 3 and len(ee) > 0:
+            t_pos = np.arange(len(ee)) * dt
+            # Panel 3: EE Z position
+            axes[2].plot(t_pos, ee[:, 2],  linewidth=1.5, label=f"EE ({label})")
+            if tgt.ndim == 2 and tgt.shape[1] >= 3:
+                axes[2].plot(t_pos, tgt[:, 2], "--", linewidth=1.0, label=f"Target ({label})")
+                # Panel 4: position Z error
+                axes[3].plot(t_pos, ee[:, 2] - tgt[:, 2], linewidth=1.5, label=label)
+
+    # Desired force reference line on panel 1
+    if results:
+        df_ref = np.array(results[0]["desired_forces"])
+        df_val = df_ref[:, 0] if df_ref.ndim == 2 else df_ref
+        axes[0].plot(np.arange(len(df_val)) * dt, df_val,
+                     "k--", linewidth=1.2, label="Desired")
+
+    axes[0].set_ylabel("Contact Force Z (N)")
+    axes[0].legend(loc="best", fontsize=7)
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].set_ylabel("Force Error (N)")
+    axes[1].axhline(0, color="k", linewidth=0.8, linestyle="--")
+    axes[1].legend(loc="best", fontsize=7)
+    axes[1].grid(True, alpha=0.3)
+
+    axes[2].set_ylabel("Z Position (m)")
+    axes[2].legend(loc="best", fontsize=7)
+    axes[2].grid(True, alpha=0.3)
+
+    axes[3].set_ylabel("Z Pos Error: EE−Target (m)")
+    axes[3].axhline(0, color="k", linewidth=0.8, linestyle="--")
+    axes[3].legend(loc="best", fontsize=7)
+    axes[3].grid(True, alpha=0.3)
+    axes[3].set_xlabel("Time (s)")
+
+    fig.tight_layout()
+    out_path = os.path.join(out_dir, filename)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"[PLOT] Force+position summary saved to {out_path}")

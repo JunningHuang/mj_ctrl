@@ -1,0 +1,69 @@
+# ==============================================================================
+# Franka FR3 — Fixed-Point Experiment Configuration
+# ==============================================================================
+#
+# Usage:
+#   # Single fixed-point run (Experiment 1 — inspect force-Z error):
+#   python run_hybrid_control_franka.py --ip <robot-ip> \
+#       --config configs/franka_fixed_point_config.yaml
+#
+#   # Full experiment suites with comparison plots:
+#   python run_fixed_point_experiments.py --ip <robot-ip> \
+#       --config configs/franka_fixed_point_config.yaml \
+#       --suite 1        # fixed-point baseline
+#       --suite 2        # z-offset sweep  ±0.1 mm
+#       --suite 3        # F_desired sweep
+# ==============================================================================
+
+experiment_name: null   # e.g. "fr3_fixed_point_exp1"
+
+experiments_base_dir: "experiments"
+
+# ==============================================================================
+# ControllerConfig
+# ==============================================================================
+controller:
+  size_z:    0.0001                     # Slope thickness [m]
+  slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
+
+  euler: [0.0, 0.0, 0.0]               # Surface orientation (roll, pitch, yaw) [rad]
+
+  dt:                   0.001          # Timestep [s] (used for plotting)
+  gravity_compensation: true
+
+  # Duration for each run [s].  10 s gives a good steady-state force sample.
+  motion_duration: 10.0
+
+  position_tolerance: 0.01
+  use_table: false
+
+# ==============================================================================
+# HybridControllerConfig
+# ==============================================================================
+hybrid_controller:
+  Kpos:          0.95
+  Kori:          0.95
+  damping_ratio: 1.0
+
+  impedance_pos: [100.0, 100.0, 100.0]
+  impedance_ori: [50.0,  50.0,  50.0]
+  Kp_null:       [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
+
+  Kp_force: 0.4
+  Kd_force: 0.002
+  Ki_force: 0.4
+
+  # Baseline desired contact force [N]; negative = push into surface.
+  # run_fixed_point_experiments.py overrides this per-run for Suite 3.
+  F_desired_contact: [-8.0]
+  max_delta_tau: 1.0
+
+# ==============================================================================
+# Trajectory — fixed_point
+# The robot holds slope_pos with zero desired velocity/acceleration.
+# fixed_pos is optional: if omitted, defaults to
+#     slope_pos + R_slope @ [0, 0, size_z]
+# ==============================================================================
+trajectory:
+  type: "fixed_point"
+  # fixed_pos: [0.5038, 0.0108, 0.0857]   # Uncomment to override default
