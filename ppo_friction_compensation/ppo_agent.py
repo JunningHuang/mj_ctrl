@@ -138,8 +138,10 @@ class PPOAgent:
         act_limit: float = 5.0,
         log_std_init: float = -0.5,
     ) -> None:
-        self.actor  = Actor(obs_dim, act_dim, hidden, log_std_init)
-        self.critic = Critic(obs_dim, hidden)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.actor  = Actor(obs_dim, act_dim, hidden, log_std_init).to(self.device)
+        self.critic = Critic(obs_dim, hidden).to(self.device)
 
         self.pi_optim = torch.optim.Adam(self.actor.parameters(),  lr=pi_lr)
         self.vf_optim = torch.optim.Adam(self.critic.parameters(), lr=vf_lr)
@@ -161,7 +163,7 @@ class PPOAgent:
             log_prob (float):  Log-probability of the *unclipped* sample.
             value (float):     Value-function estimate V(obs).
         """
-        obs  = torch.as_tensor(obs_np, dtype=torch.float32)
+        obs  = torch.as_tensor(obs_np, dtype=torch.float32).to(self.device)
         dist = self.actor(obs)
         act  = dist.rsample()                          # reparameterised sample
         logp = dist.log_prob(act).sum()                # scalar
@@ -169,7 +171,7 @@ class PPOAgent:
         val  = self.critic(obs)                        # scalar
 
         act_clipped = act.clamp(-self.act_limit, self.act_limit)
-        return act_clipped.numpy(), logp.item(), val.item()
+        return act_clipped.cpu().numpy(), logp.item(), val.item()
 
     # ------------------------------------------------------------------
     def update(self, buf_data: dict) -> dict:
@@ -184,11 +186,11 @@ class PPOAgent:
             Dictionary with scalar diagnostics:
             pi_loss, vf_loss, kl, stopped_early.
         """
-        obs     = torch.as_tensor(buf_data["obs"],  dtype=torch.float32)
-        act     = torch.as_tensor(buf_data["act"],  dtype=torch.float32)
-        adv     = torch.as_tensor(buf_data["adv"],  dtype=torch.float32)
-        ret     = torch.as_tensor(buf_data["ret"],  dtype=torch.float32)
-        logp_old = torch.as_tensor(buf_data["logp"], dtype=torch.float32)
+        obs     = torch.as_tensor(buf_data["obs"],  dtype=torch.float32).to(self.device)
+        act     = torch.as_tensor(buf_data["act"],  dtype=torch.float32).to(self.device)
+        adv     = torch.as_tensor(buf_data["adv"],  dtype=torch.float32).to(self.device)
+        ret     = torch.as_tensor(buf_data["ret"],  dtype=torch.float32).to(self.device)
+        logp_old = torch.as_tensor(buf_data["logp"], dtype=torch.float32).to(self.device)
 
         # Normalize advantages (in-place, not stored back to buffer)
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
@@ -259,8 +261,8 @@ class PPOAgent:
     def load(self, path_prefix: str) -> None:
         """Load actor and critic state dicts from a previous save."""
         self.actor.load_state_dict(
-            torch.load(f"{path_prefix}_actor.pt", map_location="cpu")
+            torch.load(f"{path_prefix}_actor.pt", map_location=self.device)
         )
         self.critic.load_state_dict(
-            torch.load(f"{path_prefix}_critic.pt", map_location="cpu")
+            torch.load(f"{path_prefix}_critic.pt", map_location=self.device)
         )
