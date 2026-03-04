@@ -80,7 +80,7 @@ def build_obs_raw(
     prev_force_error: float,
     dt_action: float,
 ) -> tuple:
-    """Build 18-dim raw observation, same as HybridControlEnv._get_obs_raw."""
+    """Build 25-dim raw observation, same as HybridControlEnv._get_obs_raw."""
     q  = np.array(robot_state.q,  dtype=np.float64)
     dq = np.array(robot_state.dq, dtype=np.float64)
     f6 = np.array(robot_state.O_F_ext_hat_K, dtype=np.float64)
@@ -103,6 +103,7 @@ def build_obs_raw(
         contact_force_local,
         ee_velocity,
         dq.astype(np.float32),
+        q.astype(np.float32),
         np.array([force_error_dot], dtype=np.float32),
     ])
     return obs_raw, force_error
@@ -327,10 +328,10 @@ def main() -> None:
     # 4. Load PPO agent + normalizer
     # ----------------------------------------------------------------
     if not no_ppo:
-        agent = PPOAgent(obs_dim=18, act_dim=7)
+        agent = PPOAgent(obs_dim=25, act_dim=7)
         agent.load(checkpoint)
         agent.actor.eval()
-        normalizer = WelfordNormalizer(18)
+        normalizer = WelfordNormalizer(25)
         normalizer.load(f"{checkpoint}_normalizer.npz")
         print(f"[PPO]   Checkpoint loaded ({normalizer.n} normalizer samples)")
     else:
