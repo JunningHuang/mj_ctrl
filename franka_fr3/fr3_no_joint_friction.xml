@@ -138,7 +138,7 @@
                       <geom name="fr3_link7_collision" class="collision" mesh="link7_coll"/>
                       <body name="attachment" pos="0 0 0.107" quat="0.3826834 0 0 0.9238795">
                         <geom name="attachment_visual" class="visual" type="sphere" size="0.01" rgba="0.8 0.2 0.2 1"/>
-                        <geom name="attachment_collision" class="collision" type="sphere" size="0.01" rgba="0.8 0.2 0.2 1" priority="1" solimp="0.015 1 0.02" condim="6" friction="0.7 0.02 0.01" />
+                        <geom name="attachment_collision" class="collision" type="sphere" size="0.01" rgba="0.8 0.2 0.2 1" priority="1" solimp="0.015 1 0.02" condim="6" friction="0.0 0.02 0.01" />
                         <site name="attachment_site" rgba="1 0 0 1" size="0.01" group="1" quat="0 0 0 1"/>
                       </body>
                     </body>
