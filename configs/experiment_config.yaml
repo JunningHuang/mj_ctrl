@@ -31,7 +31,7 @@ experiments_base_dir: "experiments"
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           200
+  epochs:           150
   steps_per_epoch:  4000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
@@ -131,7 +131,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments/run_20260304_115524/checkpoints/final"
+  checkpoint: "experiments/run_20260304_150338/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
