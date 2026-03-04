@@ -7,13 +7,14 @@ the MuJoCo simulation:
 
     τ_total = hybrid_controller.update(sim_time, robot_state) + Δτ
 
-Observation (18,)
+Observation (25,)
 -----------------
   [0]      force_error          = F_desired_z − F_contact_z        (scalar)
   [1:4]    contact_force_local  = O_F_ext_hat_K[:3]                (3,)
   [4:10]   ee_velocity          = J(q) · dq                        (6,)
   [10:17]  dq                   = joint velocities                  (7,)
-  [17]     force_error_dot      = Δ(force_error) / dt_action       (scalar)
+  [17:24]  q                    = joint positions                   (7,)
+  [24]     force_error_dot      = Δ(force_error) / dt_action       (scalar)
 
 All observations are passed through Welford online normalisation.
 
@@ -159,7 +160,7 @@ class HybridControlEnv:
         ``randomize_trajectory=True``.  Defaults to [-5., -8., -12., -15.].
     """
 
-    OBS_DIM = 18
+    OBS_DIM = 25
     ACT_DIM = 7
 
     def __init__(
@@ -554,7 +555,7 @@ class HybridControlEnv:
 
     def _get_obs_raw(self, robot_state) -> np.ndarray:
         """
-        Compute the raw (un-normalised) observation vector of shape (18,).
+        Compute the raw (un-normalised) observation vector of shape (25,).
 
         Layout
         ------
@@ -562,7 +563,8 @@ class HybridControlEnv:
         [1:4]    contact_force_local  (3,)
         [4:10]   ee_velocity          (6,)
         [10:17]  dq                   (7,)
-        [17]     force_error_dot      (scalar)
+        [17:24]  q                    (7,)
+        [24]     force_error_dot      (scalar)
         """
         q   = np.array(robot_state.q,   dtype=np.float64)
         dq  = np.array(robot_state.dq,  dtype=np.float64)
@@ -595,6 +597,7 @@ class HybridControlEnv:
             contact_force_local,                              # 3
             ee_velocity,                                      # 6
             dq.astype(np.float32),                           # 7
+            q.astype(np.float32),                            # 7
             np.array([force_error_dot], dtype=np.float32),   # 1
-        ])                                                    # → 18
+        ])                                                    # → 25
         return obs
