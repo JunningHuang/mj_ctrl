@@ -58,7 +58,7 @@ controller:
   gravity_compensation: false
 
   # How long the trajectory runs [s].  Set large to run continuously.
-  motion_duration: 80.0
+  motion_duration: 10.0
 
   # Distance threshold for is_target_reached() [m].
   position_tolerance: 0.01
@@ -101,7 +101,7 @@ trajectory:
   type: "sinusoidal"
   start_pos: [0.5038, 0.0108, 0.0857]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
-  frequency: 0.01     # [Hz]
+  frequency: 0.2     # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"

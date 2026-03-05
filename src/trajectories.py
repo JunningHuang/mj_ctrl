@@ -305,3 +305,28 @@ class RampHoldTrajectory(Trajectory):
         dds     = (60 * sigma      - 180 * sigma ** 2 + 120 * sigma ** 3) / T ** 2
         delta   = end - start
         return (start + s * delta, ds * delta, dds * delta)
+
+
+@dataclass
+class FixedPointTrajectory(Trajectory):
+    """
+    Fixed-point trajectory: the end-effector holds a constant world-frame
+    position with zero desired velocity and acceleration throughout.
+
+    Useful for:
+    - Experiment 1: Diagnosing steady-state force errors in the Z direction
+      while the robot is stationary at slope_pos.
+    - Experiment 2: Evaluating how a ±z position offset affects the achieved
+      contact force (position → force coupling).
+    - Experiment 3: Evaluating how changing F_desired_contact affects position
+      accuracy (force setpoint → position error coupling).
+
+    Parameters
+    ----------
+    fixed_pos : world-frame position to hold [m]  (3,)
+    """
+
+    fixed_pos: np.ndarray
+
+    def __call__(self, elapsed_time: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return (self.fixed_pos.copy(), np.zeros(3), np.zeros(3))

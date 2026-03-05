@@ -16,6 +16,7 @@ from src.trajectories import (
     LineTrajectory,
     LissajousTrajectory,
     RampHoldTrajectory,
+    FixedPointTrajectory,
 )
 from src.robot_configs import (
     RobotConfig,
@@ -43,6 +44,7 @@ __all__ = [
     "LineTrajectory",
     "LissajousTrajectory",
     "RampHoldTrajectory",
+    "FixedPointTrajectory",
     # Robot configs
     "RobotConfig",
     "FR3_CONFIG",

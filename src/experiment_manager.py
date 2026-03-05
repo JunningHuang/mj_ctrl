@@ -29,6 +29,7 @@ from src.trajectories import (
     LineTrajectory,
     LissajousTrajectory,
     RampHoldTrajectory,
+    FixedPointTrajectory,
 )
 
 
@@ -65,9 +66,12 @@ def build_trajectory(
 
     Supported types
     ---------------
-    "sinusoidal"  →  SinusoidalTrajectory  (requires: start_pos)
-    "circle"      →  CircleTrajectory      (requires: center, radius)
-    "line"        →  LineTrajectory        (requires: start_pos, end_pos)
+    "sinusoidal"   →  SinusoidalTrajectory   (requires: start_pos)
+    "circle"       →  CircleTrajectory       (requires: center, radius)
+    "line"         →  LineTrajectory         (requires: start_pos, end_pos)
+    "lissajous"    →  LissajousTrajectory    (requires: center)
+    "ramp_hold"    →  RampHoldTrajectory     (requires: start_pos, end_pos)
+    "fixed_point"  →  FixedPointTrajectory   (optional: fixed_pos; defaults to slope_pos)
     """
     traj_raw  = raw.get("trajectory", {})
     traj_type = traj_raw.get("type", "sinusoidal")
@@ -142,10 +146,19 @@ def build_trajectory(
             hold_duration = traj_raw.get("hold_duration", 2.0),
         )
 
+    elif traj_type == "fixed_point":
+        if "fixed_pos" in traj_raw:
+            fixed_pos = np.asarray(traj_raw["fixed_pos"], dtype=float)
+        else:
+            # Default: slope_pos offset by size_z along the surface normal,
+            # matching the zero-displacement position of SinusoidalTrajectory.
+            fixed_pos = controller_cfg.slope_pos.copy() + R_slope @ np.array([0.0, 0.0, size_z])
+        return FixedPointTrajectory(fixed_pos=fixed_pos)
+
     else:
         raise ValueError(
             f"Unknown trajectory type '{traj_type}'. "
-            "Choose from 'sinusoidal', 'circle', 'line', 'lissajous', 'ramp_hold'."
+            "Choose from 'sinusoidal', 'circle', 'line', 'lissajous', 'ramp_hold', 'fixed_point'."
         )
 
 
