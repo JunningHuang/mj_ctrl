@@ -48,8 +48,21 @@ from utils_plot import (
     plot_joint_torques,
 )
 
-from ppo_friction_compensation.ppo_agent import PPOAgent
-from ppo_friction_compensation.env_wrapper import WelfordNormalizer
+# Import PPO modules directly from their files to avoid triggering
+# ppo_friction_compensation/__init__.py → env_wrapper.py → import mujoco,
+# which is not available on the real-robot host.
+import importlib.util as _ilu
+from pathlib import Path as _Path
+
+def _load_ppo_module(stem: str):
+    path = _Path(__file__).parent / "ppo_friction_compensation" / f"{stem}.py"
+    spec = _ilu.spec_from_file_location(f"_ppo_{stem}", path)
+    mod  = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+PPOAgent         = _load_ppo_module("ppo_agent").PPOAgent
+WelfordNormalizer = _load_ppo_module("normalizer").WelfordNormalizer
 
 
 # ---------------------------------------------------------------------------
