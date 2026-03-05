@@ -146,7 +146,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments/run_20260304_181514/checkpoints/final"
+  checkpoint: "experiments/run_20260304_150338/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
@@ -161,7 +161,7 @@ evaluation:
   # Sets the sliding friction of the contact surface (attachment_collision
   # geom, first friction parameter).  Range [0.3, 1.0]; default 1.0 matches
   # the XML default.  Override with --surface-friction on the CLI.
-  surface_friction: 1.0
+  surface_friction: 0.7
 
 # ==============================================================================
 # Trajectory

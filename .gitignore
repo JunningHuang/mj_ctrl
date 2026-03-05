@@ -13,5 +13,4 @@ wandb/**
 experiments/*/checkpoints/*epoch*.pt
 experiments/*/checkpoints/*epoch*.npz
 experiments/*/plots
-experiments/*/config.yaml
 franka_fr3/table_slope_auto.xml
