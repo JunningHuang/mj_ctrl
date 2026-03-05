@@ -92,8 +92,10 @@ def train(
     hybrid_config=None,
     trajectory=None,
     # Trajectory diversity (Phase 1.1/1.2/1.3)
-    randomize_trajectory:  bool  = True,
-    f_desired_choices: "list | None" = None,
+    randomize_trajectory:      bool  = True,
+    f_desired_choices:    "list | None" = None,
+    # Surface friction randomisation
+    randomize_surface_friction: bool  = False,
     # Parallel rollout collection
     num_workers:     int   = 1,
     # Weights & Biases
@@ -147,18 +149,21 @@ def train(
             entity  = wandb_entity,
             name    = run_name,
             config  = {
-                "robot_type":      robot_type,
-                "steps_per_epoch": steps_per_epoch,
-                "epochs":          epochs,
-                "gamma":           gamma,
-                "lam":             lam,
-                "clip_ratio":      clip_ratio,
-                "pi_lr":           pi_lr,
-                "vf_lr":           vf_lr,
-                "train_pi_iters":  train_pi_iters,
-                "train_v_iters":   train_v_iters,
-                "target_kl":       target_kl,
-                "seed":            seed,
+                "robot_type":                robot_type,
+                "steps_per_epoch":           steps_per_epoch,
+                "epochs":                    epochs,
+                "gamma":                     gamma,
+                "lam":                       lam,
+                "clip_ratio":                clip_ratio,
+                "pi_lr":                     pi_lr,
+                "vf_lr":                     vf_lr,
+                "train_pi_iters":            train_pi_iters,
+                "train_v_iters":             train_v_iters,
+                "target_kl":                 target_kl,
+                "seed":                      seed,
+                "randomize_trajectory":      randomize_trajectory,
+                "randomize_surface_friction": randomize_surface_friction,
+                "f_desired_choices":         f_desired_choices or [-5.0, -8.0, -12.0, -15.0],
             },
         )
         print(f"[TRAIN] wandb run: {_wandb.run.url}")
@@ -175,16 +180,18 @@ def train(
     # ---- Environment --------------------------------------------------------
     print(f"[TRAIN] Initialising environment (robot={robot_type}) …")
     print(f"[TRAIN] randomize_trajectory={randomize_trajectory}, "
-          f"f_desired_choices={f_desired_choices or '[-5,-8,-12,-15]'}")
+          f"f_desired_choices={f_desired_choices or '[-5,-8,-12,-15]'}, "
+          f"randomize_surface_friction={randomize_surface_friction}")
 
     # Keyword arguments shared between the main-process env and all workers
     _env_kwargs = dict(
-        robot_type           = robot_type,
-        common_config        = common_config,
-        hybrid_config        = hybrid_config,
-        trajectory           = trajectory,
-        randomize_trajectory = randomize_trajectory,
-        f_desired_choices    = f_desired_choices,
+        robot_type                  = robot_type,
+        common_config               = common_config,
+        hybrid_config               = hybrid_config,
+        trajectory                  = trajectory,
+        randomize_trajectory        = randomize_trajectory,
+        f_desired_choices           = f_desired_choices,
+        randomize_surface_friction  = randomize_surface_friction,
     )
 
     # ---- Agent + buffer -----------------------------------------------------
@@ -508,8 +515,9 @@ if __name__ == "__main__":
             target_kl            = training_cfg.get("target_kl",            0.01),
             save_every           = training_cfg.get("save_every",           10),
             seed                 = training_cfg.get("seed",                 0),
-            randomize_trajectory = training_cfg.get("randomize_trajectory", True),
-            f_desired_choices    = training_cfg.get("f_desired_choices",    None),
+            randomize_trajectory        = training_cfg.get("randomize_trajectory",        True),
+            f_desired_choices           = training_cfg.get("f_desired_choices",           None),
+            randomize_surface_friction  = training_cfg.get("randomize_surface_friction",  False),
             num_workers          = training_cfg.get("num_workers", args.num_workers),
             experiment_manager   = exp_manager,
             common_config        = common_config,

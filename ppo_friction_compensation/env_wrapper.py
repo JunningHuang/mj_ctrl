@@ -158,6 +158,12 @@ class HybridControlEnv:
     f_desired_choices : list of float or None
         Pool of desired-force values [N] to draw from when
         ``randomize_trajectory=True``.  Defaults to [-5., -8., -12., -15.].
+    randomize_surface_friction : bool
+        When True, re-sample the sliding friction coefficient of the contact
+        surface (attachment_collision geom) each episode.  The coefficient is
+        drawn uniformly from [0.3, 1.0]; the other friction parameters
+        (rolling=0.02, spinning=0.01) remain fixed.
+        Can be combined independently with ``randomize_trajectory``.
     """
 
     OBS_DIM = 25
@@ -177,6 +183,7 @@ class HybridControlEnv:
         trajectory:    Optional[Trajectory] = None,
         randomize_trajectory: bool = True,
         f_desired_choices: Optional[List[float]] = None,
+        randomize_surface_friction: bool = False,
     ) -> None:
 
         self.action_repeat            = action_repeat
@@ -185,8 +192,9 @@ class HybridControlEnv:
         self.f_desired                = f_desired
         self.approach_max_steps       = approach_max_steps
         self.approach_contact_thresh  = approach_contact_thresh
-        self.randomize_trajectory     = randomize_trajectory
-        self._f_desired_choices       = (
+        self.randomize_trajectory       = randomize_trajectory
+        self.randomize_surface_friction = randomize_surface_friction
+        self._f_desired_choices         = (
             f_desired_choices if f_desired_choices is not None
             else [-5.0, -8.0, -12.0, -15.0]
         )
@@ -248,7 +256,9 @@ class HybridControlEnv:
             xml_path=self.robot_cfg.mujoco_scene_xml_path,
         )
 
-        # Fix slope friction coefficient for this training run
+        # Set default surface friction (first param of attachment_collision geom).
+        # When randomize_surface_friction=True this is overridden each episode
+        # in reset(); otherwise it stays at the XML default (1.0).
         try:
             self.mj.model.geom("slope_geom").friction[0] = 1.0
         except Exception:
@@ -303,6 +313,9 @@ class HybridControlEnv:
         # ---- 1. Sample trajectory / force for this episode ------------------
         if self.randomize_trajectory:
             self._sample_trajectory()
+
+        if self.randomize_surface_friction:
+            self._randomize_surface_friction()
 
         # ---- 2. Reset to home -----------------------------------------------
         self._reset_to_home()
@@ -488,6 +501,21 @@ class HybridControlEnv:
         f_chosen = random.choice(self._f_desired_choices)
         self.f_desired = f_chosen
         self.hybrid_controller.config.F_desired_contact = np.array([f_chosen])
+
+    def _randomize_surface_friction(self) -> None:
+        """
+        Randomise the sliding friction of the contact surface for this episode.
+
+        The first friction coefficient of the attachment_collision geom is
+        drawn uniformly from [0.3, 1.0].  The remaining parameters
+        (rolling friction = 0.02, spinning friction = 0.01) are unchanged.
+
+        Because attachment_collision has contact priority=1 it takes
+        precedence over the slope_geom when MuJoCo resolves contact
+        parameters, so this directly controls the effective sliding friction.
+        """
+        friction = random.uniform(0.3, 1.0)
+        self.mj.model.geom("attachment_collision").friction[0] = friction
 
     def _get_segment_type(self) -> str:
         """

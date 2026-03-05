@@ -220,6 +220,9 @@ def main() -> None:
                         help="Directory to save output plots (overrides config)")
     parser.add_argument("--viewer", action="store_true",
                         help="Launch the MuJoCo viewer (default: headless)")
+    parser.add_argument("--surface-friction", type=float, default=None,
+                        help="Sliding friction coefficient for the contact surface "
+                             "[0.3, 1.0] (overrides config; default: 1.0)")
     parser.add_argument("--wandb-project", default=None,
                         help="Weights & Biases project name (overrides config)")
     parser.add_argument("--wandb-entity", default=None,
@@ -243,6 +246,9 @@ def main() -> None:
         out_dir    = args.out_dir or eval_cfg.get("out_dir", "ppo_eval_plots")
         viewer     = args.viewer or eval_cfg.get("viewer", False)
         no_ppo     = args.no_ppo or eval_cfg.get("no_ppo", False)
+        surface_friction = (args.surface_friction
+                            if args.surface_friction is not None
+                            else eval_cfg.get("surface_friction", 1.0))
 
         common_config = build_controller_config(raw)
         if args.motion_duration is not None:
@@ -259,6 +265,7 @@ def main() -> None:
         out_dir    = args.out_dir or "ppo_eval_plots"
         viewer     = args.viewer
         no_ppo     = args.no_ppo
+        surface_friction = args.surface_friction if args.surface_friction is not None else 1.0
 
         common_config = ControllerConfig()
         if args.motion_duration is not None:
@@ -287,6 +294,7 @@ def main() -> None:
     print(f"[CONFIG] PPO active : {not no_ppo}")
     print(f"[CONFIG] Duration   : {common_config.motion_duration}s")
     print(f"[CONFIG] F_desired  : {f_desired} N")
+    print(f"[CONFIG] Friction   : {surface_friction}")
     print(f"[CONFIG] Viewer     : {viewer}")
     print(f"[CONFIG] Output dir : {out_dir}/")
 
@@ -304,12 +312,13 @@ def main() -> None:
             job_type = "evaluation",
             name    = f"eval_{label}",
             config  = {
-                "robot_type":      robot_type,
-                "checkpoint":      checkpoint,
-                "f_desired":       f_desired,
-                "motion_duration": common_config.motion_duration,
-                "no_ppo":          no_ppo,
-                "label":           label,
+                "robot_type":       robot_type,
+                "checkpoint":       checkpoint,
+                "f_desired":        f_desired,
+                "surface_friction": surface_friction,
+                "motion_duration":  common_config.motion_duration,
+                "no_ppo":           no_ppo,
+                "label":            label,
             },
         )
         print(f"[EVAL] wandb run: {_wandb.run.url}")
@@ -354,11 +363,9 @@ def main() -> None:
         xml_path=robot_cfg.mujoco_scene_xml_path,
     )
 
-    # Match training friction setting
-    try:
-        mujoco_interface.model.geom("slope_geom").friction[0] = 1.0
-    except Exception:
-        pass
+    # Apply the evaluation surface friction (attachment_collision has contact
+    # priority=1 and determines effective sliding friction).
+    mujoco_interface.model.geom("attachment_collision").friction[0] = surface_friction
 
     # ----------------------------------------------------------------
     # 6. Reset simulation  (same as run_hybrid_control_mujoco.py)

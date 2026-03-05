@@ -31,7 +31,7 @@ experiments_base_dir: "experiments"
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           50
+  epochs:           200
   steps_per_epoch:  4000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
@@ -59,22 +59,7 @@ training:
   # When false, the trajectory defined in the `trajectory` section below is
   # used for every episode.
   # ---------------------------------------------------------------------------
-  randomize_trajectory: false
-
-  # ---------------------------------------------------------------------------
-  # Surface friction randomisation
-  # Set randomize_surface_friction: true to sample a new sliding friction
-  # coefficient for the contact surface each episode.  The first friction
-  # parameter of the attachment_collision geom is drawn uniformly from
-  # [0.3, 1.0]; the remaining parameters (0.02, 0.01) are kept fixed.
-  #
-  # Combination rules:
-  #   randomize_trajectory: false, randomize_surface_friction: true
-  #       → fixed sinusoidal trajectory + random surface friction
-  #   randomize_trajectory: true,  randomize_surface_friction: true
-  #       → random trajectory type/params AND random surface friction
-  # ---------------------------------------------------------------------------
-  randomize_surface_friction: true
+  randomize_trajectory: true
 
   # ---------------------------------------------------------------------------
   # Phase 1.3 — Desired-force randomisation
@@ -146,7 +131,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments/run_20260304_181514/checkpoints/final"
+  checkpoint: "experiments/run_20260302_185053/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
@@ -156,12 +141,6 @@ evaluation:
 
   # Baseline mode: run the hybrid controller without PPO torque corrections.
   no_ppo: false
-
-  # Surface friction coefficient used during evaluation.
-  # Sets the sliding friction of the contact surface (attachment_collision
-  # geom, first friction parameter).  Range [0.3, 1.0]; default 1.0 matches
-  # the XML default.  Override with --surface-friction on the CLI.
-  surface_friction: 1.0
 
 # ==============================================================================
 # Trajectory
