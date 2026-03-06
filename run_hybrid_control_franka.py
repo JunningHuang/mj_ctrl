@@ -319,7 +319,6 @@ def main() -> None:
 
                     if no_ppo:
                         tau = tau_hybrid
-                        print(tau)
                     else:
                     # PPO correction — update every action_repeat=20 physics steps
                         if physics_step % 20 == 0:
