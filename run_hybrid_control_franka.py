@@ -295,10 +295,10 @@ def main() -> None:
         log_force_actual  = []
         log_delta_taus    = []
 
-        print("\nStarting torque control...")
-        active_control = robot.start_torque_control()
-        robot_state, _ = active_control.readOnce()
-        O_T_EE     = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        # Read initial pose BEFORE entering active control — robot.read_once()
+        # does not start the 1 ms real-time clock, so all setup can happen here.
+        init_state = robot.read_once()
+        O_T_EE     = np.array(init_state.O_T_EE).reshape(4, 4).T
         target_rot = O_T_EE[:3, :3]
 
         hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
@@ -306,6 +306,10 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("HYBRID FORCE-IMPEDANCE CONTROL RUNNING")
         print("=" * 60)
+
+        # Start active control last — loop must call readOnce→writeOnce immediately
+        print("\nStarting torque control...")
+        active_control = robot.start_torque_control()
 
         # =====================================================================
         # 5. Real-time control loop
@@ -319,7 +323,6 @@ def main() -> None:
 
                     if no_ppo:
                         tau = tau_hybrid
-                        print(tau)
                     else:
                     # PPO correction — update every action_repeat=20 physics steps
                         if physics_step % 20 == 0:
