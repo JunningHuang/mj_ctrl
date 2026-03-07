@@ -23,6 +23,8 @@ import gc
 import numpy as np
 import pinocchio as pino
 import torch
+torch.set_num_threads(1)       # restrict PyTorch thread pool to 1
+torch.set_num_interop_threads(1)
 from pylibfranka import Robot, Torques
 
 from src import (
@@ -47,7 +49,7 @@ from utils_plot import (
     plot_hybrid_results,
     plot_joint_torques,
 )
-
+import time
 # Import PPO modules directly from their files to avoid triggering
 # ppo_friction_compensation/__init__.py → env_wrapper.py → import mujoco,
 # which is not available on the real-robot host.
@@ -64,55 +66,54 @@ def _load_ppo_module(stem: str):
 PPOAgent         = _load_ppo_module("ppo_agent").PPOAgent
 WelfordNormalizer = _load_ppo_module("normalizer").WelfordNormalizer
 
-
 # ---------------------------------------------------------------------------
 # PPO helpers (identical logic to run_ppo_eval.py)
 # ---------------------------------------------------------------------------
 
-@torch.no_grad()
-def get_ppo_action(actor, obs_np: np.ndarray, act_limit: float = 5.0) -> np.ndarray:
-    """Deterministic (mean) action — no sampling noise for deployment."""
-    obs  = torch.as_tensor(obs_np, dtype=torch.float32)
-    dist = actor(obs)
-    return dist.mean.clamp(-act_limit, act_limit).numpy()
+# @torch.no_grad()
+# def get_ppo_action(actor, obs_np: np.ndarray, act_limit: float = 5.0) -> np.ndarray:
+#     """Deterministic (mean) action — no sampling noise for deployment."""
+#     obs  = torch.as_tensor(obs_np, dtype=torch.float32)
+#     dist = actor(obs)
+#     return dist.mean.clamp(-act_limit, act_limit).numpy()
 
 
-def build_obs_raw(
-    robot_state,
-    pino_model,
-    pino_data,
-    pino_frame_id: int,
-    f_desired: float,
-    prev_force_error: float,
-    dt_action: float,
-) -> tuple:
-    """Build 25-dim raw observation, same as HybridControlEnv._get_obs_raw."""
-    q  = np.array(robot_state.q,  dtype=np.float64)
-    dq = np.array(robot_state.dq, dtype=np.float64)
-    f6 = np.array(robot_state.O_F_ext_hat_K, dtype=np.float64)
+# def build_obs_raw(
+#     robot_state,
+#     pino_model,
+#     pino_data,
+#     pino_frame_id: int,
+#     f_desired: float,
+#     prev_force_error: float,
+#     dt_action: float,
+# ) -> tuple:
+#     """Build 25-dim raw observation, same as HybridControlEnv._get_obs_raw."""
+#     q  = np.array(robot_state.q,  dtype=np.float64)
+#     dq = np.array(robot_state.dq, dtype=np.float64)
+#     f6 = np.array(robot_state.O_F_ext_hat_K, dtype=np.float64)
 
-    contact_force_local = f6[:3].astype(np.float32)
-    f_z             = float(f6[2])
-    force_error     = f_desired - f_z
-    force_error_dot = (force_error - prev_force_error) / dt_action
+#     contact_force_local = f6[:3].astype(np.float32)
+#     f_z             = float(f6[2])
+#     force_error     = f_desired - f_z
+#     force_error_dot = (force_error - prev_force_error) / dt_action
 
-    pino.forwardKinematics(pino_model, pino_data, q, dq)
-    pino.computeJointJacobians(pino_model, pino_data)
-    pino.updateFramePlacements(pino_model, pino_data)
-    jac = pino.getFrameJacobian(
-        pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED
-    )
-    ee_velocity = (jac @ dq).astype(np.float32)
+#     pino.forwardKinematics(pino_model, pino_data, q, dq)
+#     pino.computeJointJacobians(pino_model, pino_data)
+#     pino.updateFramePlacements(pino_model, pino_data)
+#     jac = pino.getFrameJacobian(
+#         pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED
+#     )
+#     ee_velocity = (jac @ dq).astype(np.float32)
 
-    obs_raw = np.concatenate([
-        np.array([force_error],     dtype=np.float32),
-        contact_force_local,
-        ee_velocity,
-        dq.astype(np.float32),
-        q.astype(np.float32),
-        np.array([force_error_dot], dtype=np.float32),
-    ])
-    return obs_raw, force_error
+#     obs_raw = np.concatenate([
+#         np.array([force_error],     dtype=np.float32),
+#         contact_force_local,
+#         ee_velocity,
+#         dq.astype(np.float32),
+#         q.astype(np.float32),
+#         np.array([force_error_dot], dtype=np.float32),
+#     ])
+#     return obs_raw, force_error
 
 
 def _save_plots(hybrid_controller, common_config, plot_dir: str) -> None:
@@ -212,25 +213,24 @@ def main() -> None:
     # =========================================================================
     # 3. Load Pinocchio model
     # =========================================================================
-    pino_model    = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
-    pino_data     = pino_model.createData()
-    pino_frame_id = pino_model.getFrameId(robot_cfg.ee_frame_name)
+    pino_model = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
+    pino_data  = pino_model.createData()
 
     # =========================================================================
     # 4. Load PPO agent + normalizer (skipped in --no-ppo mode)
     # =========================================================================
-    dt_action = 20 * common_config.dt   # 20 ms — action_repeat=20, same as training
+    # dt_action = 20 * common_config.dt   # 20 ms — action_repeat=20, same as training
 
-    if not no_ppo:
-        agent = PPOAgent(obs_dim=25, act_dim=7)
-        agent.load(checkpoint)
-        agent.actor.eval()
-        normalizer = WelfordNormalizer(25)
-        normalizer.load(f"{checkpoint}_normalizer.npz")
-        print(f"[PPO]   Checkpoint loaded ({normalizer.n} normalizer samples)")
-    else:
-        agent = normalizer = None
-        print("[PPO]   Baseline mode — no PPO correction")
+    # if not no_ppo:
+    #     agent = PPOAgent(obs_dim=25, act_dim=7)
+    #     agent.load(checkpoint)
+    #     agent.actor.eval()
+    #     normalizer = WelfordNormalizer(25)
+    #     normalizer.load(f"{checkpoint}_normalizer.npz")
+    #     print(f"[PPO]   Checkpoint loaded ({normalizer.n} normalizer samples)")
+    # else:
+    #     agent = normalizer = None
+    #     print("[PPO]   Baseline mode — no PPO correction")
 
     robot = None
     hybrid_controller = None
@@ -267,6 +267,11 @@ def main() -> None:
         # =====================================================================
         # 4. Start torque control and initialise
         # =====================================================================
+        print("\nStarting torque control...")
+        active_control = robot.start_torque_control()
+        robot_state, _ = active_control.readOnce()
+        O_T_EE     = np.array(robot_state.O_T_EE).reshape(4, 4).T
+        target_rot = O_T_EE[:3, :3]
 
         # Warm up Pinocchio before entering the real-time loop
         _wq  = np.array(q0)
@@ -288,18 +293,18 @@ def main() -> None:
 
         control_phase     = ControlPhase.CIRCLE_DRAWING
         sim_time          = 0.0
-        physics_step      = 0
-        prev_force_error  = 0.0
-        current_delta_tau = np.zeros(robot_cfg.n_joints)
-        log_force_errors  = []
-        log_force_actual  = []
-        log_delta_taus    = []
+        # physics_step      = 0
+        # prev_force_error  = 0.0
+        # current_delta_tau = np.zeros(robot_cfg.n_joints)
+        # log_force_errors  = []
+        # log_force_actual  = []
+        # log_delta_taus    = []
 
         # Read initial pose BEFORE entering active control — robot.read_once()
         # does not start the 1 ms real-time clock, so all setup can happen here.
-        init_state = robot.read_once()
-        O_T_EE     = np.array(init_state.O_T_EE).reshape(4, 4).T
-        target_rot = O_T_EE[:3, :3]
+        # init_state = robot.read_once()
+        # O_T_EE     = np.array(init_state.O_T_EE).reshape(4, 4).T
+        # target_rot = O_T_EE[:3, :3]
 
         hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
 
@@ -309,7 +314,7 @@ def main() -> None:
 
         # Start active control last — loop must call readOnce→writeOnce immediately
         print("\nStarting torque control...")
-        active_control = robot.start_torque_control()
+        
 
         # =====================================================================
         # 5. Real-time control loop
@@ -319,29 +324,30 @@ def main() -> None:
                 robot_state, duration = active_control.readOnce()
 
                 if control_phase == ControlPhase.CIRCLE_DRAWING:
-                    tau_hybrid = hybrid_controller.update(sim_time, robot_state)
+                    tau = hybrid_controller.update(sim_time, robot_state)
+                    # tau_hybrid = hybrid_controller.update(sim_time, robot_state)
 
-                    if no_ppo:
-                        tau = tau_hybrid
-                    else:
-                    # PPO correction — update every action_repeat=20 physics steps
-                        if physics_step % 20 == 0:
-                            f_z         = float(np.array(robot_state.O_F_ext_hat_K)[2])
-                            force_error = f_desired - f_z
+                    # if no_ppo:
+                    #     tau = tau_hybrid
+                    # else:
+                    # # PPO correction — update every action_repeat=20 physics steps
+                    #     if physics_step % 20 == 0:
+                    #         f_z         = float(np.array(robot_state.O_F_ext_hat_K)[2])
+                    #         force_error = f_desired - f_z
 
-                            obs_raw, fe       = build_obs_raw(
-                                robot_state, pino_model, pino_data, pino_frame_id,
-                                f_desired, prev_force_error, dt_action,
-                            )
-                            obs_norm          = normalizer.normalize(obs_raw)
-                            current_delta_tau = get_ppo_action(agent.actor, obs_norm)
-                            prev_force_error  = fe
+                    #         obs_raw, fe       = build_obs_raw(
+                    #             robot_state, pino_model, pino_data, pino_frame_id,
+                    #             f_desired, prev_force_error, dt_action,
+                    #         )
+                    #         obs_norm          = normalizer.normalize(obs_raw)
+                    #         current_delta_tau = get_ppo_action(agent.actor, obs_norm)
+                    #         prev_force_error  = fe
 
-                            log_force_errors.append(force_error)
-                            log_force_actual.append(f_z)
-                            log_delta_taus.append(current_delta_tau.copy())
+                    #         # log_force_errors.append(force_error)
+                    #         # log_force_actual.append(f_z)
+                    #         # log_delta_taus.append(current_delta_tau.copy())
 
-                        tau = tau_hybrid + current_delta_tau
+                    #     tau = tau_hybrid + current_delta_tau
 
                     if hybrid_controller.is_finished():
                         print("\n" + "=" * 60)
@@ -357,7 +363,7 @@ def main() -> None:
 
                 active_control.writeOnce(Torques(tau.tolist()))
                 sim_time     += duration.to_sec()
-                physics_step += 1
+                # physics_step += 1
 
         except KeyboardInterrupt:
             print("\nControl interrupted by user")
@@ -371,19 +377,19 @@ def main() -> None:
         # =====================================================================
         # 6. Force-tracking summary
         # =====================================================================
-        if log_force_errors:
-            fe_arr = np.array(log_force_errors)
-            dt_arr = np.array(log_delta_taus)
-            print("\n" + "=" * 60)
-            print(f"CONTROL SUMMARY  [{'baseline_no_ppo' if no_ppo else 'ppo'}]")
-            print("=" * 60)
-            print(f"PPO steps logged   : {len(fe_arr)}")
-            print(f"Mean |force_error| : {np.mean(np.abs(fe_arr)):.3f} N")
-            print(f"Max  |force_error| : {np.max(np.abs(fe_arr)):.3f} N")
-            print(f"Std  |force_error| : {np.std(fe_arr):.3f} N")
-            if not no_ppo:
-                print(f"Mean ||Δτ||        : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
-            print("=" * 60)
+        # if log_force_errors:
+        #     fe_arr = np.array(log_force_errors)
+        #     dt_arr = np.array(log_delta_taus)
+        #     print("\n" + "=" * 60)
+        #     print(f"CONTROL SUMMARY  [{'baseline_no_ppo' if no_ppo else 'ppo'}]")
+        #     print("=" * 60)
+        #     print(f"PPO steps logged   : {len(fe_arr)}")
+        #     print(f"Mean |force_error| : {np.mean(np.abs(fe_arr)):.3f} N")
+        #     print(f"Max  |force_error| : {np.max(np.abs(fe_arr)):.3f} N")
+        #     print(f"Std  |force_error| : {np.std(fe_arr):.3f} N")
+        #     if not no_ppo:
+        #         print(f"Mean ||Δτ||        : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
+        #     print("=" * 60)
 
         # =====================================================================
         # 7. Plots
