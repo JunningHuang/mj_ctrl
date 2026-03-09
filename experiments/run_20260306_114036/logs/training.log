@@ -1,0 +1,3 @@
+epoch,mean_ret,mean_len,pi_loss,vf_loss,kl,pi_iters,n_episodes,rmse_curve,rmse_line,rmse_hold,elapsed_s
+1,-2235.6783,436.0,-0.011538,175956.828125,0.015243,11,6,nan,7.3726,nan,21.66
+2,-1911.0068,330.6,-0.008126,153004.281250,0.015101,10,14,nan,26.9603,nan,18.29
