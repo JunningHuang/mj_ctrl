@@ -31,7 +31,7 @@ experiments_base_dir: "experiments"
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           200
+  epochs:           50
   steps_per_epoch:  4000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
