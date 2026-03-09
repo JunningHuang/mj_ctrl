@@ -49,7 +49,7 @@
 import argparse
 import gc
 import os
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 import time
 
 import matplotlib
@@ -82,8 +82,9 @@ from utils_plot import (
     plot_joint_torques,
 )
 
-# PPO evaluation utilities (separate from ppo_friction_compensation/)
-from ppo_franka_eval import PPOFrankaEvaluator
+# PPO inference — torch-free client/obs-builder for the RT process.
+# torch lives exclusively in the inference server subprocess.
+from ppo_franka_eval.inference_client import PPOInferenceClient, PPOObsBuilder
 
 
 # ---------------------------------------------------------------------------
@@ -256,23 +257,28 @@ def main() -> None:
               f"({1.0/dt_action:.0f} Hz)")
 
     # =========================================================================
-    # 3. Load PPO evaluator (before connecting to robot)
+    # 3. Launch PPO inference server subprocess (torch isolated there)
     # =========================================================================
-    ppo_evaluator: PPOFrankaEvaluator | None = None
+    # PPOInferenceClient spawns a child process that loads torch + the actor.
+    # The RT process (this process) never imports torch, so pt_main_thread and
+    # friends never appear here and cannot interfere with the 1 ms deadline.
+    ppo_client: PPOInferenceClient | None = None
+    ppo_obs_builder: PPOObsBuilder | None = None
     if not args.no_ppo:
-        ppo_evaluator = PPOFrankaEvaluator(
+        ppo_client = PPOInferenceClient(
             checkpoint_prefix = args.checkpoint,
-            f_desired         = f_desired,
-            pino_frame_id     = pino_frame_id,
             obs_dim           = args.obs_dim,
             act_dim           = args.act_dim,
             hidden            = args.hidden,
             act_limit         = args.act_limit,
-            action_repeat     = args.action_repeat,
         )
-        # Pre-warm before gc.disable() — pays all one-time torch costs now
-        ppo_evaluator.warmup(n_calls=30)
-        print("[PPO] Evaluator ready.")
+        ppo_obs_builder = PPOObsBuilder(
+            f_desired     = f_desired,
+            pino_frame_id = pino_frame_id,
+            action_repeat = args.action_repeat,
+            obs_dim       = args.obs_dim,
+        )
+        print("[PPO] Inference server ready.")
 
     # Real-robot q0 (calibrated for FR3 on physical setup)
     q0 = np.array([0.1376, 0.5954, -0.0836, -2.3269, 0.1185, 2.9249, 0.7046])
@@ -354,8 +360,8 @@ def main() -> None:
         sim_time      = 0.0
         hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
 
-        if ppo_evaluator is not None:
-            ppo_evaluator.reset()
+        if ppo_obs_builder is not None:
+            ppo_obs_builder.reset()
 
         # PPO logging counter (log every action_repeat cycles)
         _log_cycle = 0
@@ -377,10 +383,16 @@ def main() -> None:
                     tau_hybrid = hybrid_controller.update(sim_time, robot_state)
 
                     # -- PPO correction (50 Hz, zero-order hold) ---------------
-                    if ppo_evaluator is not None:
-                        delta_tau = ppo_evaluator.update(
-                            robot_state, pino_model, pino_data
-                        )
+                    if ppo_client is not None:
+                        # Non-blocking: update last_action if server has result
+                        ppo_client.try_recv()
+                        # Submit new observation every action_repeat cycles
+                        if _log_cycle % args.action_repeat == 0:
+                            obs = ppo_obs_builder.build(
+                                robot_state, pino_model, pino_data
+                            )
+                            ppo_client.submit(obs)
+                        delta_tau = ppo_client.last_action
                     else:
                         delta_tau = np.zeros(robot_cfg.n_joints)
 
@@ -434,7 +446,7 @@ def main() -> None:
             print(f"Mean |force_error| : {np.mean(np.abs(fe_arr)):.3f} N")
             print(f"Max  |force_error| : {np.max(np.abs(fe_arr)):.3f} N")
             print(f"Std  |force_error| : {np.std(fe_arr):.3f} N")
-            if ppo_evaluator is not None and dt_arr.size > 0:
+            if ppo_client is not None and dt_arr.size > 0:
                 print(f"Mean ||Δτ||        : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
             print(f"Total sim time     : {sim_time:.2f}s")
             print("=" * 60)
@@ -461,6 +473,8 @@ def main() -> None:
         return -1
 
     finally:
+        if ppo_client is not None:
+            ppo_client.shutdown()
         if robot is not None:
             robot.stop()
 

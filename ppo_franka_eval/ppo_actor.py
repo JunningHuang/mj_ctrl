@@ -31,8 +31,15 @@ Architecture (matches ppo_friction_compensation/ppo_agent.py)
 Only the mean (deterministic) action is used for real-robot deployment;
 stochastic sampling is disabled.
 """
-import os 
+
+import os
+
+# Hide all GPUs before torch is imported so torch never attempts CUDA
+# initialisation.  This bypasses the torch 2.4.1+cu121 / CUDA 13.1 version
+# incompatibility that would otherwise cause a hang or latency spike and
+# trigger libfranka's communication_constraints_violation.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 import numpy as np
 import torch
 import torch.nn as nn
