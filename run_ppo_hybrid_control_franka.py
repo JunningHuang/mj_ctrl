@@ -49,6 +49,7 @@
 import argparse
 import gc
 import os
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 import time
 
 import matplotlib

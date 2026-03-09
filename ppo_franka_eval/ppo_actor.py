@@ -31,7 +31,8 @@ Architecture (matches ppo_friction_compensation/ppo_agent.py)
 Only the mean (deterministic) action is used for real-robot deployment;
 stochastic sampling is disabled.
 """
-
+import os 
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 import numpy as np
 import torch
 import torch.nn as nn
