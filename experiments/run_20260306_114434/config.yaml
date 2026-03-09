@@ -146,7 +146,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments/run_20260306_114434/checkpoints/final"
+  checkpoint: "experiments/run_20260304_181514/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
