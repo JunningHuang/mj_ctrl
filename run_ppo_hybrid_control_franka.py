@@ -49,6 +49,13 @@
 import argparse
 import gc
 import os
+
+# Must be set before any import that pulls in torch, to prevent torch from
+# probing CUDA libraries.  torch 2.4.1+cu121 is incompatible with CUDA 13.1;
+# attempting CUDA init causes a hang that exceeds the 1 ms libfranka deadline
+# and triggers communication_constraints_violation.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 import time
 
 import matplotlib
