@@ -92,7 +92,7 @@ def main() -> None:
         print(f"[CONFIG] Loaded from: {args.config}")
         print(f"[CONFIG] Experiment folder: {exp_manager.root}")
     else:
-        robot_type    = args.robot
+        robot_type    = "fr3"
         common_config = ControllerConfig(
             motion_duration=args.motion_duration,
         )
@@ -120,7 +120,7 @@ def main() -> None:
     q0 = np.array([0.1376, 0.5954, -0.0836, -2.3269, 0.1185, 2.9249, 0.7046])
 
     # =========================================================================
-    # 2. Load Pinocchio model
+    # 3. Load Pinocchio model
     # =========================================================================
     pino_model = pino.buildModelFromMJCF(robot_cfg.pinocchio_xml_path)
     pino_data  = pino_model.createData()
@@ -158,13 +158,8 @@ def main() -> None:
         )
 
         # =====================================================================
-        # 4. Start torque control and initialise
+        # 4. Warm up Pinocchio, read initial pose, then start torque control
         # =====================================================================
-        print("\nStarting torque control...")
-        active_control = robot.start_torque_control()
-        robot_state, _ = active_control.readOnce()
-        O_T_EE     = np.array(robot_state.O_T_EE).reshape(4, 4).T
-        target_rot = O_T_EE[:3, :3]
 
         # Warm up Pinocchio before entering the real-time loop
         _wq  = np.array(q0)
@@ -184,13 +179,24 @@ def main() -> None:
         gc.collect()
         gc.disable()
 
-        control_phase = ControlPhase.CIRCLE_DRAWING
-        sim_time      = 0.0
-        hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
+        # Read initial pose BEFORE entering active control — robot.read_once()
+        # does not start the 1 ms real-time clock, so all setup can happen here.
+        init_state = robot.read_once()
+        O_T_EE     = np.array(init_state.O_T_EE).reshape(4, 4).T
+        target_rot = O_T_EE[:3, :3]
+
+        hybrid_controller.starting(0.0, target_rot, q0, pino_model, pino_data)
 
         print("\n" + "=" * 60)
         print("HYBRID FORCE-IMPEDANCE CONTROL RUNNING")
         print("=" * 60)
+
+        # Start active control last — loop must call readOnce→writeOnce immediately
+        print("\nStarting torque control...")
+        active_control = robot.start_torque_control()
+
+        control_phase = ControlPhase.CIRCLE_DRAWING
+        sim_time      = 0.0
 
         # =====================================================================
         # 5. Real-time control loop
