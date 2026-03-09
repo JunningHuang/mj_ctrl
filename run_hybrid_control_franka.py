@@ -12,18 +12,11 @@ import argparse
 import gc
 import os
 
-# Must be set BEFORE importing torch — the MKL/OpenMP thread pool is created
-# at import time and cannot be resized afterward. Without this, torch spawns
-# N_CPU threads that compete with the libfranka RT callback and cause
-# communication_constraints_violation.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-
 import numpy as np
 import pinocchio as pino
 from pylibfranka import Robot, Torques
+# import torch
+# print(torch.get_num_threads(), "==============================")
 
 from src import (
     ControllerConfig,
