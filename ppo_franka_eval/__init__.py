@@ -20,9 +20,12 @@ PPOFrankaEvaluator     — builds the 25-dim observation from real robot state,
 
 from .ppo_actor import PPOActorInference
 from .ppo_franka_evaluator import PPOFrankaEvaluator, WelfordNormalizerInference
+from .inference_client import PPOInferenceClient, PPOObsBuilder
 
 __all__ = [
     "PPOActorInference",
     "PPOFrankaEvaluator",
     "WelfordNormalizerInference",
+    "PPOInferenceClient",
+    "PPOObsBuilder",
 ]
