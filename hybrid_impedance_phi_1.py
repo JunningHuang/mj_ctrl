@@ -10,7 +10,7 @@ import numpy as np
 import time
 import pinocchio as pino
 import logging
-from utils import *
+from utils_old import *
 import matplotlib.pyplot as plt
 from geom_visualizer import visualize_normal_arrow, reset_scene
 
@@ -205,7 +205,7 @@ def main() -> None:
             step_start = time.time()
             reset_scene(scene, ngeom_init)
 
-            current_contact_force, contact_pos = check_world_ee_contact_force(data, model)
+            current_contact_force = check_world_ee_contact_force(data, model)
             F_ext_phi = current_contact_force @ S_f
             F_ext_x = current_contact_force @ S_v
             F_ext_v = None # no external contact on the arm and elbows
@@ -359,33 +359,34 @@ def main() -> None:
                 # computeJointJacobiansTimeVariation
                 # pino.computeJointJacobiansTimeVariation(pino_model, pino_data, data.qpos, data.qvel)
                 # ----------------- bruno's method -----------------------
-                pino_frame_id = pino_model.getFrameId("universe")
-                J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
-                J_phi_dot = S_f.T @ J_dot
-                # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
-                F_ext_x_new = F_ext_x.copy()
-                F_ext_x_new[-3:] = 0
-                control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
-                contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
-                verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
-                F_ctrl_constraint = (
-                    F_desired_contact +
-                    control_force_compensation +
-                    contact_force_compensation + verlociy_term
-                )
-                vis_forces = [
-                    np.concatenate([[0,0],F_desired_contact]), 
-                    np.concatenate([[0,0],control_force_compensation]),
-                    np.concatenate([[0,0],verlociy_term]),
-                    ]
+                # pino_frame_id = pino_model.getFrameId("universe")
+                # J_dot = pino.getFrameJacobianTimeVariation(pino_model, pino_data, pino_frame_id, pino.LOCAL_WORLD_ALIGNED)
+                # J_phi_dot = S_f.T @ J_dot
+                # # -Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v) # with and without tau_ctrl_v no big diff
+                # F_ext_x_new = F_ext_x.copy()
+                # F_ext_x_new[-3:] = 0
+                # control_force_compensation = 1 * (- Mx_constraint @ J_phi @ M_inv @ (tau_ctrl_x + tau_ctrl_v))
+                # contact_force_compensation = 0 * (Mx_constraint @ J_phi @ M_inv @ (J_motion.T @ F_ext_x_new))
+                # verlociy_term = -1 * Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ data.qvel.copy()
+                # F_ctrl_constraint = (
+                #     F_desired_contact +
+                #     control_force_compensation +
+                #     contact_force_compensation + verlociy_term
+                # )
+
+                # vis_forces = [
+                #     np.concatenate([[0,0],F_desired_contact]), 
+                #     np.concatenate([[0,0],control_force_compensation]),
+                #     np.concatenate([[0,0],verlociy_term]),
+                #     ]
                 # --------------------- PI term -------------------------------
-                # # F_ctrl_constraint = F_desired_contact.copy()
-                # pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
-                # F_ctrl_constraint += pi_term
+                # F_ctrl_constraint = F_desired_contact.copy()
+                pi_term, integral_force_error = PI_term(-F_ext_phi, F_desired_contact, dt, integral_force_error)
+                F_ctrl_constraint += pi_term
                 # -------------------- PD force control ----------------
-                # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
-                # Problem: λ˙ = Sf† K'J(q)q̇
-                # F_dot = force_dot(S_f, Compliance_matrix, jac, data, dof_ids)
+                # # fλ = λ¨d + KDλ(λ˙ d − λ˙ ) + KP λ(λd − λ), (9.81)
+                # # Problem: λ˙ = Sf† K'J(q)q̇
+                F_dot = force_dot(S_f, Compliance_matrix, jac, data, dof_ids)
                 # kd_value = 0.5 * 6
                 # kp_value = 0.05 * 60
                 # Kd_force = np.eye(F_dot.shape[0]) * kd_value
@@ -400,23 +401,23 @@ def main() -> None:
                 # tau = tau_ctrl_x
                 # tau += tau_ctrl_v
 
-                # Visualize the force command
-                positions = [
-                    contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
-                    contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
-                    contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
-                ]
-                colors = [
-                    np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
-                    np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
-                    np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
-                ]
-                visualize_normal_arrow(
-                    scene=scene, 
-                    arrows_pos_world=positions, 
-                    arrows_vec_world=vis_forces,
-                    colors=colors
-                )
+                # # Visualize the force command
+                # positions = [
+                #     contact_pos + np.array([-0.03, 0.0, 0.0]),  # F_desired_contact (left)
+                #     contact_pos + np.array([0.0, 0.0, 0.0]),    # control_force_compensation (center)  
+                #     contact_pos + np.array([+0.03, 0.0, 0.0])   # verlociy_term (right)
+                # ]
+                # colors = [
+                #     np.array([1.0, 0.0, 0.0, 1.0]),  # Red - F_desired_contact
+                #     np.array([0.0, 1.0, 0.0, 1.0]),  # Green - control_force_compensation
+                #     np.array([0.0, 0.0, 1.0, 1.0])   # Blue - verlociy_term
+                # ]
+                # visualize_normal_arrow(
+                #     scene=scene, 
+                #     arrows_pos_world=positions, 
+                #     arrows_vec_world=vis_forces,
+                #     colors=colors
+                # )
 
                 # Add gravity compensation.
                 if gravity_compensation:
