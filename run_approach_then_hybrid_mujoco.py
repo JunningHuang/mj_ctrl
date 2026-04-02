@@ -22,7 +22,7 @@ from src import (
     HybridControllerConfig,
     get_robot_config
 )
-from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results
+from utils_plot import plot_ee_positions, plot_joint_torques, plot_control_torques, plot_hybrid_results, plot_force_error_z
 from utils_libfranka import euler_to_rot_matrix, generate_start_position
 from mujoco_robot_interface import MujocoRobotInterface, Torques
 
@@ -238,6 +238,7 @@ def main() -> None:
             plot_ee_positions(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
             plot_control_torques(hybrid_controller, common_config.dt, plot_dir="mj_ctrl/plots/sim/circle")
             plot_hybrid_results(hybrid_controller, common_config.dt, robot_cfg.name)
+            plot_force_error_z(hybrid_controller, common_config.dt, robot_cfg.name)
 
         print("\n[MAIN] Combined control finished")
         print(f"Approach time: {approach_controller.time_elapsed:.2f}s")

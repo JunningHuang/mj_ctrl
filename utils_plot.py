@@ -215,3 +215,45 @@ def plot_hybrid_results(
         plt.tight_layout()
         fig.savefig(f"{plot_dir}/hybrid_force_decomposition_{robot_name}.png")
     print(f"[PLOT] Results saved to plots/ directory")
+
+
+def plot_force_error_z(
+    controller,
+    dt: float,
+    robot_name: str = "",
+    plot_dir: str = "mj_ctrl/plots/sim/circle/force"
+) -> None:
+    """Plot force error on Z axis during circle drawing, with average absolute error in title."""
+    import matplotlib.pyplot as plt
+
+    os.makedirs(plot_dir, exist_ok=True)
+
+    contact_forces = np.array(controller.contact_forces) if controller.contact_forces else np.empty((0, 3))
+    desired_forces = np.array(controller.desired_forces) if controller.desired_forces else np.empty((0, 1))
+
+    if contact_forces.size == 0 or contact_forces.ndim < 2 or contact_forces.shape[1] < 3:
+        print("[PLOT] No contact force data to plot force error Z")
+        return
+
+    t = np.arange(len(contact_forces)) * dt
+    force_z = contact_forces[:, 2]
+    desired_z = desired_forces[:, 0]
+    error_z = force_z - desired_z
+    avg_abs_error = np.mean(np.abs(error_z))
+
+    prefix = f"{robot_name.upper()}: " if robot_name else ""
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(t, error_z, linewidth=1.5, label='Force error Z')
+    ax.axhline(0, color='r', linestyle='--', linewidth=1, label='Zero error')
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Force Error Z (N)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.suptitle(
+        f'{prefix}Force Error on Z Axis (Circle Drawing)\nAvg |Error|: {avg_abs_error:.4f} N',
+        fontsize=12
+    )
+    plt.tight_layout()
+    suffix = f"_{robot_name}" if robot_name else ""
+    fig.savefig(f"{plot_dir}/force_error_z{suffix}.png", dpi=150)
+    print(f"[PLOT] Force error Z saved to {plot_dir}/force_error_z{suffix}.png")

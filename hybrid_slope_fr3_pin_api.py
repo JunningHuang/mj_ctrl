@@ -656,7 +656,31 @@ def plot_results(
         fig.suptitle(f'FR3: contact forces')
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
-    
+
+    # ============================================================
+    # Plot Force Error on Z Axis (Circle Drawing Phase Only)
+    # ============================================================
+    if len(contact_forces) > 0 and contact_forces.ndim == 2 and contact_forces.shape[1] >= 3:
+        force_z = contact_forces[:, 2]
+        desired_z = desired_forces[:, 0]
+        error_z = force_z - desired_z
+        avg_abs_error = np.mean(np.abs(error_z))
+        t_circle = np.arange(len(error_z)) * dt + transition_time
+
+        fig_err, ax_err = plt.subplots(figsize=(10, 4))
+        ax_err.plot(t_circle, error_z, linewidth=1.5, label='Force error Z')
+        ax_err.axhline(0, color='r', linestyle='--', linewidth=1, label='Zero error')
+        ax_err.set_xlabel('Time (s)')
+        ax_err.set_ylabel('Force Error Z (N)')
+        ax_err.grid(True, alpha=0.3)
+        ax_err.legend()
+        fig_err.suptitle(
+            f'FR3: Force Error on Z Axis (Circle Drawing)\nAvg |Error|: {avg_abs_error:.4f} N',
+            fontsize=12
+        )
+        plt.tight_layout()
+        fig_err.savefig("plots/force_error_z.png", dpi=150)
+
     # ============================================================
     # Plot Force Decomposition Components
     # ============================================================
