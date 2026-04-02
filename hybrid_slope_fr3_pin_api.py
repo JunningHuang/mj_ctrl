@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from utils_libfranka import *
+from utils_plot import plot_force_error_z
 import matplotlib.pyplot as plt
 from geom_visualizer import visualize_normal_arrow, reset_scene
 from mujoco_robot_interface import MujocoRobotInterface, MujocoRobotState, Torques
@@ -656,7 +657,12 @@ def plot_results(
         fig.suptitle(f'FR3: contact forces')
         plt.tight_layout()
         plt.savefig("plots/contact_forces.png")
-    
+
+    # ============================================================
+    # Plot Force Error on Z Axis (Circle Drawing Phase Only)
+    # ============================================================
+    plot_force_error_z(circle_controller, dt, robot_name="fr3", plot_dir="plots")
+
     # ============================================================
     # Plot Force Decomposition Components
     # ============================================================
