@@ -23,9 +23,9 @@ class ControllerConfig:
 
     # Circle drawing parameters
     circle_center: np.ndarray = None
-    circle_radius: float = 0.05
+    circle_radius: float = 0.1
     circle_duration: float = 10.0
-    angular_speed: float = np.pi
+    angular_speed: float = np.pi * 2
 
     # Contact detection thresholds
     position_tolerance: float = 0.01  # 1cm tolerance for reaching target
@@ -38,7 +38,8 @@ class ControllerConfig:
     def __post_init__(self):
         """Set default values for array parameters."""
         if self.circle_center is None:
-            self.circle_center = np.array([0.4871, 0.0, 0.044])
+            # self.circle_center = np.array([0.4871, 0.0, 0.044])
             # self.circle_center = np.array([0.5038, 0.0108, 0.0857])
+            self.circle_center = np.array([0.5, 0.0, 0.45])
         if self.euler is None:
             self.euler = np.array([np.deg2rad(0), 0, 0])

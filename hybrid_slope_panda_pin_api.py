@@ -574,7 +574,7 @@ class HybridController:
     def _log_data(self, F_ext_local: np.ndarray, current_pos: np.ndarray) -> None:
         """Log data for plotting."""
         self.contact_forces.append(F_ext_local[:3].copy())
-        self.desired_forces.append(-self.config.F_desired_contact.copy())
+        self.desired_forces.append(self.config.F_desired_contact.copy())
         self.ee_positions.append(current_pos.copy())
         self.target_positions.append(self.target_pos.copy())
 
