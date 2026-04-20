@@ -70,7 +70,7 @@ class ControllerConfig:
 
     def __post_init__(self) -> None:
         if self.slope_pos is None:
-            self.slope_pos = np.array([0.5038, 0.0108, 0.0857])
+            self.slope_pos = np.array([[0.4927, 0.0063, 0.0559]])
         if self.euler is None:
             self.euler = np.array([0.0, 0.0, 0.0])
 
