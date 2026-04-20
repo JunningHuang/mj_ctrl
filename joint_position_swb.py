@@ -48,7 +48,7 @@ def main() -> int:
     args = parser.parse_args()
     robot = Robot(args.ip)
 
-    pino_model = pino.buildModelFromMJCF("mj_ctrl/franka_fr3/fr3.xml")
+    pino_model = pino.buildModelFromMJCF("franka_fr3/fr3.xml")
     pino_data = pino_model.createData()
 
     try:

@@ -104,16 +104,22 @@ class PPOFrankaEvaluator:
       * Holds ``delta_tau`` constant between refreshes (zero-order hold).
       * Computes the 25-dim observation only when needed (every 20 ms).
 
-    Observation layout (identical to HybridControlEnv._get_obs_raw)
-    ---------------------------------------------------------------
-    Index    Field                  Dimension
-    -------  --------------------   ---------
-    [0]      force_error            1
-    [1:4]    contact_force_local    3  (O_F_ext_hat_K[:3])
-    [4:10]   ee_velocity            6  (J(q)·dq  LOCAL_WORLD_ALIGNED)
-    [10:17]  dq                     7  (joint velocities)
-    [17:24]  q                      7  (joint positions)
-    [24]     force_error_dot        1
+    Observation layout
+    ------------------
+    25-dim (default):
+      [0]      force_error            1
+      [1:4]    contact_force_local    3  (O_F_ext_hat_K[:3])
+      [4:10]   ee_velocity            6  (J(q)·dq  LOCAL_WORLD_ALIGNED)
+      [10:17]  dq                     7  (joint velocities)
+      [17:24]  q                      7  (joint positions)
+      [24]     force_error_dot        1
+
+    18-dim (legacy, obs_dim=18):
+      [0]      force_error            1
+      [1:4]    contact_force_local    3  (O_F_ext_hat_K[:3])
+      [4:10]   ee_velocity            6  (J(q)·dq  LOCAL_WORLD_ALIGNED)
+      [10:17]  dq                     7  (joint velocities)
+      [17]     force_error_dot        1
 
     Parameters
     ----------
@@ -279,14 +285,20 @@ class PPOFrankaEvaluator:
         )
         ee_velocity = jac @ dq   # (6,)
 
-        # Fill observation buffer in-place (no allocation)
+        # Fill observation buffer in-place (no allocation).
+        # Two supported layouts depending on obs_dim:
+        #   18-dim (legacy): [force_err | f6[:3] | ee_vel | dq | force_err_dot]
+        #   25-dim (full):   [force_err | f6[:3] | ee_vel | dq | q | force_err_dot]
         buf = self._obs_raw
         buf[0]     = force_error
         buf[1:4]   = f6[:3]
         buf[4:10]  = ee_velocity
         buf[10:17] = dq
-        buf[17:24] = q
-        buf[24]    = force_error_dot
+        if len(buf) == 25:
+            buf[17:24] = q
+            buf[24]    = force_error_dot
+        else:
+            buf[17]    = force_error_dot
 
     def _refresh(self, robot_state, pino_model, pino_data) -> None:
         """Build obs, normalize, run actor, update self._delta_tau."""
