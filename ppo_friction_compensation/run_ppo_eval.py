@@ -227,6 +227,9 @@ def main() -> None:
                         help="Weights & Biases project name (overrides config)")
     parser.add_argument("--wandb-entity", default=None,
                         help="Weights & Biases entity (overrides config)")
+    parser.add_argument("--no-wandb", action="store_true",
+                        help="Disable Weights & Biases logging "
+                             "(overrides --wandb-project and config)")
     args = parser.parse_args()
 
     # ----------------------------------------------------------------
@@ -258,6 +261,9 @@ def main() -> None:
 
         wandb_project = args.wandb_project or wandb_cfg.get("project") or None
         wandb_entity  = args.wandb_entity  or wandb_cfg.get("entity")  or None
+        if args.no_wandb:
+            wandb_project = None
+            wandb_entity  = None
     else:
         robot_type = args.robot or "fr3"
         checkpoint = args.checkpoint or "ppo_checkpoints/final"
@@ -282,6 +288,9 @@ def main() -> None:
 
         wandb_project = args.wandb_project or None
         wandb_entity  = args.wandb_entity  or None
+        if args.no_wandb:
+            wandb_project = None
+            wandb_entity  = None
 
     label = "baseline_no_ppo" if no_ppo else f"ppo_{Path(checkpoint).parts[-3]}"
 
