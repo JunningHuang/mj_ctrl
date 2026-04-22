@@ -62,6 +62,10 @@ def main() -> None:
         "--motion-duration", type=float, default=10.0,
         help="How long to run the trajectory [s] (default: 10.0)",
     )
+    parser.add_argument(
+        "--use-pi", action="store_true",
+        help="Enable PI force correction term in the hybrid controller",
+    )
     args = parser.parse_args()
 
     # =========================================================================
@@ -97,6 +101,10 @@ def main() -> None:
         )
         plot_dir = "plots/franka"
         print("[CONFIG] No config file — using built-in defaults.")
+
+    # --use-pi overrides whatever the config file may have set
+    if args.use_pi:
+        common_config.use_pi = True
 
     # =========================================================================
     # 2. Robot setup

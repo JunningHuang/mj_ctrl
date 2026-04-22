@@ -23,6 +23,20 @@ from src.controller_config import ControllerConfig
 from src.trajectories import Trajectory
 
 
+def PI_term(
+    F_ext: np.ndarray,
+    F_desired: np.ndarray,
+    dt: float,
+    integral_force_error: np.ndarray,
+    kp: float = 2.0,
+    ki: float = 2.0,
+) -> tuple:
+    """PI force correction: -kp*(F_ext - F_des) - ki * integral(F_ext - F_des) dt"""
+    f_error = F_ext - F_desired
+    integral_force_error = integral_force_error + f_error * dt
+    return -kp * f_error - ki * integral_force_error, integral_force_error
+
+
 @dataclass
 class HybridControllerConfig:
     """Configuration for hybrid force-impedance controller."""
@@ -38,9 +52,9 @@ class HybridControllerConfig:
     impedance_ori: np.ndarray = None
 
     # Force control gains
-    Kp_force: float = 0.4
-    Kd_force: float = 0.002
-    Ki_force: float = 0.4
+    Kp_force: float = 2.0
+    Kd_force: float = 0.5
+    Ki_force: float = 5.0
     F_desired_contact: np.ndarray = None
 
     # Torque rate limiting (max Nm change per timestep)
@@ -160,6 +174,9 @@ class HybridController:
         self.start_time: float = 0.0
         self.is_drawing: bool  = False
 
+        # PI integral state (reset in starting())
+        self.integral_force_error = np.zeros(1)
+
         # Preallocated workspace
         self.tau = np.zeros(n_joints)
 
@@ -222,6 +239,7 @@ class HybridController:
         self.tau_ctrl_v_log                 = []
 
         self.tau[:] = 0.0
+        self.integral_force_error = np.zeros(1)
 
         print(f"[HYBRID START] Surface motion started at t={current_time:.2f}s")
         print(f"[HYBRID START] Trajectory: {type(self.trajectory).__name__}")
@@ -339,6 +357,18 @@ class HybridController:
             + contact_force_compensation
             + velocity_term
         )
+
+        if self.common_config.use_pi:
+            pi_term, self.integral_force_error = PI_term(
+                F_ext_phi,
+                self.config.F_desired_contact,
+                self.common_config.dt,
+                self.integral_force_error,
+                kp=self.config.Kp_force,
+                ki=self.config.Ki_force,
+            )
+            F_ctrl_constraint = F_ctrl_constraint + pi_term
+
         tau_ctrl_phi = J_phi.T @ F_ctrl_constraint
 
         # ============================================================

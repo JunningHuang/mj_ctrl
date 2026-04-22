@@ -67,6 +67,7 @@ class ControllerConfig:
     position_tolerance:   float      = 0.01
     euler:                np.ndarray = None
     use_table:            bool       = False
+    use_pi:               bool       = False
 
     def __post_init__(self) -> None:
         if self.slope_pos is None:
@@ -85,7 +86,7 @@ class ControllerConfig:
         kwargs: Dict[str, Any] = {}
         for f in ("size_z",
                   "dt", "gravity_compensation", "motion_duration",
-                  "position_tolerance", "use_table"):
+                  "position_tolerance", "use_table", "use_pi"):
             if f in d:
                 kwargs[f] = d[f]
         if "slope_pos" in d:
