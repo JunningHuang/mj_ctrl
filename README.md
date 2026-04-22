@@ -120,6 +120,38 @@ Checkpoints consist of three files per step: `*_actor.pt`, `*_critic.pt`, `*_nor
 
 ---
 
+## Random trajectories (training domain randomisation)
+
+During PPO training (`randomize_trajectory=True`) a new trajectory is sampled at every episode reset from four types. Each episode also draws a desired contact force from `{−5, −8, −12, −15}` N.
+
+### Trajectory types
+
+| Type | Shape | Key parameters (sampled range) |
+|---|---|---|
+| **Sinusoidal** | Back-and-forth along x, y, or diagonal (45°) surface axis | amplitude ∈ [0.02, 0.06] m · frequency ∈ [0.5, 1.5] Hz |
+| **Circle** | Smooth closed circle on the surface plane | radius ∈ [0.02, 0.06] m · tangential speed ∈ [0.02, 0.08] m/s |
+| **Lissajous** | Figure-8 or related curves; frequency ratios 1:1, 1:2, or 2:3 | amplitude ∈ [0.02, 0.05] m · base\_freq ∈ [0.3, 0.8] Hz |
+| **Ramp-hold** | Minimum-jerk move → 2 s static hold → return | stroke ∈ [0.02, 0.05] m · move\_duration ∈ [2, 4] s |
+
+### Peak end-effector speeds
+
+Peak speed is the instantaneous maximum tangential speed of the EE in the surface plane.
+
+| Type | Formula | Min | Max |
+|---|---|---|---|
+| **Sinusoidal** | `v_peak = A × 2π × f` | 0.06 m/s | 0.57 m/s |
+| **Circle** | `v = tangential_speed` (direct) | 0.02 m/s | 0.08 m/s |
+| **Lissajous** | `v_peak (per axis) = A × ratio × 2π × f_base` | 0.04 m/s | 0.75 m/s (y-axis, ratio 3) |
+| **Ramp-hold** (move) | `v_peak = 1.875 × stroke / move_duration` | 0.009 m/s | 0.047 m/s |
+| **Ramp-hold** (hold) | stationary | 0 m/s | 0 m/s |
+
+> **Notes:**
+> - Sinusoidal and circle cover the mid-speed regime and are the most common friction excitation patterns.
+> - Lissajous produces the highest instantaneous speeds (up to ~0.75 m/s on the faster axis) and variable direction changes, stressing the PPO agent on kinetic friction.
+> - Ramp-hold is slow by design: its purpose is to stress **stick-slip** transitions at near-zero velocity, not high-speed tracking.
+
+---
+
 ## Other entry points
 - [run_hybrid_control_mujoco.py](run_hybrid_control_mujoco.py) — hybrid controller demo in MuJoCo (no PPO)
 - [run_approach_control_mujoco.py](run_approach_control_mujoco.py) — approach-phase controller

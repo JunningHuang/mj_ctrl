@@ -19,6 +19,7 @@
 
 import argparse
 import os
+import shutil
 import sys
 import time
 
@@ -294,6 +295,10 @@ def main() -> None:
 
     label = "baseline_no_ppo" if no_ppo else f"ppo_{Path(checkpoint).parts[-3]}"
 
+    # Create a timestamped run folder inside out_dir
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join(out_dir, timestamp)
+
     # ----------------------------------------------------------------
     # 1. Robot config
     # ----------------------------------------------------------------
@@ -560,7 +565,12 @@ def main() -> None:
         label,
         out_dir,
     )
-    print(f"\n[EVAL] Done. Plots saved to ./{out_dir}/")
+    # Copy config file into the run folder if one was provided
+    if args.config is not None:
+        shutil.copy2(args.config, os.path.join(out_dir, "config.yaml"))
+        print(f"[EVAL] Config saved → {os.path.join(out_dir, 'config.yaml')}")
+
+    print(f"\n[EVAL] Done. Results saved to ./{out_dir}/")
 
 
 if __name__ == "__main__":
