@@ -184,6 +184,8 @@ def main() -> None:
                         help="Torque correction clip limit [Nm] (default 5.0).")
     parser.add_argument("--action-repeat", type=int, default=20,
                         help="PPO update cadence in 1 ms control cycles (default 20 → 50 Hz).")
+    parser.add_argument("--use-pi", action="store_true",
+                        help="Enable PI force correction term in the hybrid controller.")
     args = parser.parse_args()
 
     # =========================================================================
@@ -232,6 +234,8 @@ def main() -> None:
         common_config.motion_duration = args.motion_duration
     if args.f_desired is not None:
         f_desired = args.f_desired
+    if args.use_pi:
+        common_config.use_pi = True
 
     dt_physics = common_config.dt          # 1 ms
     dt_action  = args.action_repeat * dt_physics   # 20 ms at default
