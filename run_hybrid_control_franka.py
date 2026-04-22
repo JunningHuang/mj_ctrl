@@ -115,7 +115,7 @@ def main() -> None:
     print(f"[CONFIG] Motion duration: {common_config.motion_duration}s")
 
     # Real-robot q0 (calibrated for FR3 on physical setup)
-    q0 = np.array([0.0773, 0.6735, -0.0539, -2.3063, 0.0234, 2.9743, 0.7693])
+    q0 = np.array([0.0221, 0.7644, -0.0304, -2.1874, -0.003, 2.9563, 0.7873])
 
     # =========================================================================
     # 3. Load Pinocchio model
