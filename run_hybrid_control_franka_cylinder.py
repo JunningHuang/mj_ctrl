@@ -42,7 +42,7 @@ from utils_libfranka import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Cylinder geometry constants
 # ─────────────────────────────────────────────────────────────────────────────
-CYLINDER_CENTER = np.array([0.48, 0.0, 0.1])
+CYLINDER_CENTER = np.array([0.48, 0.0, 0.0])
 CYLINDER_AXIS   = np.array([1.0, 0.0, 0.0])   # horizontal, along world X
 CYLINDER_RADIUS = 0.1                           # metres
 
@@ -267,10 +267,10 @@ def main() -> None:
     # =========================================================================
     if args.trajectory == 1:
         theta_start = 0.0
-        theta_end   = np.radians(75.0)
+        theta_end   = np.radians(55.0)
     else:
-        theta_start = np.radians(-75.0)
-        theta_end   = np.radians(75.0)
+        theta_start = np.radians(-55.0)
+        theta_end   = np.radians(55.0)
 
     omega          = args.angular_speed
     sweep_duration = (theta_end - theta_start) / omega
@@ -434,6 +434,7 @@ def main() -> None:
                     F_ext     = np.array(robot_state.O_F_ext_hat_K)
                     F_ext_phi = F_ext @ S_f   # (1,)  scalar along normal
                     F_ext_x   = F_ext @ S_v   # (5,)  motion-space components
+                    # F_ext_x = np.array([0, 0, 0, 0, 0])   # ignore measured force in motion space (feedforward only)
 
                     # ── Null-space torque ─────────────────────────────────────
                     jac_1_inv  = dynamically_consistent_inv(jac_1, M_inv)
