@@ -24,9 +24,6 @@ import argparse
 import gc
 import os
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pinocchio as pino
 from pylibfranka import Robot, Torques
@@ -45,7 +42,7 @@ from utils_libfranka import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Cylinder geometry constants
 # ─────────────────────────────────────────────────────────────────────────────
-CYLINDER_CENTER = np.array([0.5, 0.0, 0.1])
+CYLINDER_CENTER = np.array([0.48, 0.0, 0.1])
 CYLINDER_AXIS   = np.array([1.0, 0.0, 0.0])   # horizontal, along world X
 CYLINDER_RADIUS = 0.1                           # metres
 
@@ -129,6 +126,9 @@ def _save_plots(
     log_ee_pos, log_tgt_pos, log_cf, log_normals,
     f_desired: float, dt: float, plot_dir: str,
 ) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     os.makedirs(plot_dir, exist_ok=True)
 
     t   = np.arange(len(log_ee_pos)) * dt
@@ -204,7 +204,7 @@ def main() -> None:
                         help="Robot IP address")
     parser.add_argument("--trajectory",    type=int,   default=1, choices=[1, 2],
                         help="1: θ 0°→75°  |  2: θ −75°→75°")
-    parser.add_argument("--angular-speed", type=float, default=np.pi / 4,
+    parser.add_argument("--angular-speed", type=float, default=0.314,
                         help="Angular speed [rad/s] (default π/4 ≈ 45 deg/s)")
     parser.add_argument("--force-desired", type=float, default=-10.0,
                         help="Desired contact force [N] (negative = pressing in)")
@@ -259,7 +259,7 @@ def main() -> None:
     print(f"[CONFIG] Robot: {robot_cfg.name}")
 
     # Real-robot q0 (calibrated for FR3 on physical setup)
-    q0 = np.array([0.0221, 0.7644, -0.0304, -2.1874, -0.003, 2.9563, 0.7873])
+    q0 = np.array([0.1565, 0.5559, -0.1311, -2.3959, 0.0769, 2.9546, 0.7158])
 
     # =========================================================================
     # 3. Data logs
