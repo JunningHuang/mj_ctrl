@@ -45,7 +45,7 @@ from utils_libfranka import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Cylinder geometry constants
 # ─────────────────────────────────────────────────────────────────────────────
-CYLINDER_CENTER = np.array([0.5, 0.0, 0.45])
+CYLINDER_CENTER = np.array([0.5, 0.0, 0.1])
 CYLINDER_AXIS   = np.array([1.0, 0.0, 0.0])   # horizontal, along world X
 CYLINDER_RADIUS = 0.1                           # metres
 
