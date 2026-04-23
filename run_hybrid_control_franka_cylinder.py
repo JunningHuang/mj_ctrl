@@ -122,6 +122,50 @@ def cylinder_trajectory(elapsed: float, omega: float, theta_start: float = 0.0):
 # Plotting helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _save_debug_csv(
+    log_f_ext, log_f_ext_phi, log_f_ext_x,
+    log_tau_ctrl_v, log_tau_ctrl_x, log_tau_ctrl_phi, log_tau_final,
+    dt: float, data_dir: str,
+) -> None:
+    """Save combined force + torque debug log. Always called, even after an error."""
+    if not log_f_ext:
+        print("[DEBUG CSV] No data to save.")
+        return
+    os.makedirs(data_dir, exist_ok=True)
+
+    N = len(log_f_ext)
+    t = np.arange(N) * dt
+
+    f_ext_arr     = np.array(log_f_ext)       # (N, 3)
+    f_ext_phi_arr = np.array(log_f_ext_phi)   # (N, 1)
+    f_ext_x_arr   = np.array(log_f_ext_x)     # (N, 5)
+    tv_arr        = np.array(log_tau_ctrl_v)   # (N, 7)
+    tx_arr        = np.array(log_tau_ctrl_x)   # (N, 7)
+    tphi_arr      = np.array(log_tau_ctrl_phi) # (N, 7)
+    tau_arr       = np.array(log_tau_final)    # (N, 7)
+
+    header = ",".join([
+        "t",
+        "f_ext_x", "f_ext_y", "f_ext_z",
+        "f_ext_phi",
+        "f_ext_motion_0", "f_ext_motion_1", "f_ext_motion_2",
+        "f_ext_motion_3", "f_ext_motion_4",
+        "tau_v_0", "tau_v_1", "tau_v_2", "tau_v_3", "tau_v_4", "tau_v_5", "tau_v_6",
+        "tau_x_0", "tau_x_1", "tau_x_2", "tau_x_3", "tau_x_4", "tau_x_5", "tau_x_6",
+        "tau_phi_0", "tau_phi_1", "tau_phi_2", "tau_phi_3",
+        "tau_phi_4", "tau_phi_5", "tau_phi_6",
+        "tau_0", "tau_1", "tau_2", "tau_3", "tau_4", "tau_5", "tau_6",
+    ])
+    data = np.column_stack([
+        t.reshape(-1, 1),
+        f_ext_arr, f_ext_phi_arr, f_ext_x_arr,
+        tv_arr, tx_arr, tphi_arr, tau_arr,
+    ])
+    path = os.path.join(data_dir, "debug_log.csv")
+    np.savetxt(path, data, delimiter=",", header=header, comments="")
+    print(f"[DEBUG CSV] Saved {N} rows → {path}")
+
+
 def _save_plots(
     log_ee_pos, log_tgt_pos, log_cf, log_normals,
     f_desired: float, dt: float, plot_dir: str,
@@ -271,6 +315,10 @@ def main() -> None:
     log_f_ext     = []   # F_ext[:3]  — raw world-frame force (3,)
     log_f_ext_phi = []   # F_ext_phi  — force projected onto surface normal (1,)
     log_f_ext_x   = []   # F_ext_x    — force in motion space (5,)
+    log_tau_ctrl_v   = []  # null-space torque (7,)
+    log_tau_ctrl_x   = []  # motion-space torque (7,)
+    log_tau_ctrl_phi = []  # force-space torque (7,)
+    log_tau_final    = []  # tau after rate-limit + saturation clamp (7,)
 
     # =========================================================================
     # 4. Connect to robot
@@ -455,6 +503,10 @@ def main() -> None:
                     log_f_ext.append(F_ext[:3].copy())
                     log_f_ext_phi.append(F_ext_phi.copy())
                     log_f_ext_x.append(F_ext_x.copy())
+                    log_tau_ctrl_v.append(tau_ctrl_v.copy())
+                    log_tau_ctrl_x.append(tau_ctrl_x.copy())
+                    log_tau_ctrl_phi.append(tau_ctrl_phi.copy())
+                    log_tau_final.append(tau.copy())
 
                     active_control.writeOnce(Torques(tau.tolist()))
                     sim_time += dt_step
@@ -485,6 +537,14 @@ def main() -> None:
     finally:
         if robot is not None:
             robot.stop()
+        try:
+            _save_debug_csv(
+                log_f_ext, log_f_ext_phi, log_f_ext_x,
+                log_tau_ctrl_v, log_tau_ctrl_x, log_tau_ctrl_phi, log_tau_final,
+                common_config.dt, args.data_dir,
+            )
+        except Exception as csv_exc:
+            print(f"[WARN] Could not save debug CSV: {csv_exc}")
 
     # =========================================================================
     # 8. Metrics & Plots
@@ -517,28 +577,6 @@ def main() -> None:
             ee_pos=ep, target_pos=tp,
         )
         print(f"[DATA] Saved → {args.data_dir}/data.npz")
-
-    # Always write force CSV (independent of --save-data)
-    os.makedirs(args.data_dir, exist_ok=True)
-    f_ext_arr     = np.array(log_f_ext)      # (N, 3)
-    f_ext_phi_arr = np.array(log_f_ext_phi)  # (N, 1)
-    f_ext_x_arr   = np.array(log_f_ext_x)    # (N, 5)
-
-    header = (
-        "t,"
-        "f_ext_x,f_ext_y,f_ext_z,"
-        "f_ext_phi,"
-        "f_ext_motion_0,f_ext_motion_1,f_ext_motion_2,f_ext_motion_3,f_ext_motion_4"
-    )
-    csv_data = np.column_stack([
-        t.reshape(-1, 1),
-        f_ext_arr,
-        f_ext_phi_arr,
-        f_ext_x_arr,
-    ])
-    csv_path = os.path.join(args.data_dir, "force_log.csv")
-    np.savetxt(csv_path, csv_data, delimiter=",", header=header, comments="")
-    print(f"[DATA] Force CSV → {csv_path}")
 
     if args.save_plots:
         _save_plots(log_ee_pos, log_tgt_pos, log_cf, log_normals,
