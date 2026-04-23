@@ -42,7 +42,8 @@ def main() -> int:
         # default=[0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684], # scale circel start point
         # default=[0.1376, 0.5954, -0.0836, -2.3269, 0.1185, 2.9249, 0.7046], # scale circel center point
         # default=[0.0461, 0.7102, -0.0674, -2.1968, 0.0005, 2.8866, 0.7468], # wood with sensor 0.4927, 0.0063, 0.0559
-        default=[0.0221, 0.7644, -0.0304, -2.1874, -0.003, 2.9563, 0.7873], # wood without sensor 0.5205, -0.0059, 0.036
+        # default=[0.0221, 0.7644, -0.0304, -2.1874, -0.003, 2.9563, 0.7873], # wood without sensor 0.5205, -0.0059, 0.036
+        default=[0.1565, 0.5559, -0.1311, -2.3959, 0.0769, 2.9546, 0.7158], # cylinder top
         help="7 joint targets in rad (default: Franka start pose)",
     )
     parser.add_argument("--plot", action="store_true", help="Plot joint trajectories after motion")
