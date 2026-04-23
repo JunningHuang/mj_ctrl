@@ -101,7 +101,7 @@ trajectory:
   type: "sinusoidal"
   start_pos: [0.5205, -0.0059, 0.036]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
-  frequency: 1.0    # [Hz]
+  frequency: 0.2     # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"

@@ -52,9 +52,9 @@ class HybridControllerConfig:
     impedance_ori: np.ndarray = None
 
     # Force control gains
-    Kp_force: float = 2.0
+    Kp_force: float = 0.5
     Kd_force: float = 0.5
-    Ki_force: float = 5.0
+    Ki_force: float = 0.5
     F_desired_contact: np.ndarray = None
 
     # Torque rate limiting (max Nm change per timestep)
