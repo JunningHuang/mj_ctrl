@@ -4,6 +4,7 @@
 # ------------------------------------------------------------------------------
 
 from src.controller_config import ControllerConfig, ControlPhase
+from src.baseline_controller import BaselineController, BaselineControllerConfig
 from src.cartesian_space_pd_controller import (
     CartesianSpacePDController,
     CartesianSpacePDControlConfig,
@@ -31,6 +32,9 @@ __all__ = [
     # General config
     "ControllerConfig",
     "ControlPhase",
+    # Baseline Controller
+    "BaselineController",
+    "BaselineControllerConfig",
     # Cartesian Space PD Controller
     "CartesianSpacePDController",
     "CartesianSpacePDControlConfig",

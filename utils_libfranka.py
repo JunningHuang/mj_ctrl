@@ -150,3 +150,17 @@ def generate_start_position(r, body_pos, size_z, R):
     circle_local[1] = r * np.sin(theta)  # y
     circle_local[2] = size_z  # z
     return body_pos + (R @ circle_local.T).T
+
+
+def PI_term(
+    F_ext: np.ndarray,
+    F_desired: np.ndarray,
+    dt: float,
+    integral_force_error: np.ndarray,
+    kp: float = 2.0,
+    ki: float = 2.0,
+):
+    """PI force correction: -kp*(F_ext - F_des) - ki * integral(F_ext - F_des) dt"""
+    f_error = F_ext - F_desired
+    integral_force_error = integral_force_error + f_error * dt
+    return -kp * f_error - ki * integral_force_error, integral_force_error
