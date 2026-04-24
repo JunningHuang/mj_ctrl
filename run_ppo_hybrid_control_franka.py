@@ -47,8 +47,10 @@
 # ------------------------------------------------------------------------------
 
 import argparse
+from datetime import datetime
 import gc
 import os
+import shutil
 import time
 
 import matplotlib
@@ -186,6 +188,10 @@ def main() -> None:
                         help="PPO update cadence in 1 ms control cycles (default 20 → 50 Hz).")
     parser.add_argument("--use-pi", action="store_true",
                         help="Enable PI force correction term in the hybrid controller.")
+    parser.add_argument("--save-data", action="store_true",
+                        help="Save time-series data to .npz file")
+    parser.add_argument("--data-dir", type=str, default="real_robot_data/run_ppo_hybrid_franka",
+                        help="Directory to save .npz data file (used with --save-data)")
     args = parser.parse_args()
 
     # =========================================================================
@@ -284,6 +290,12 @@ def main() -> None:
     log_force_errors: list = []
     log_force_actual: list = []
     log_delta_taus:   list = []
+    
+    # Full-rate data logs (recorded at 1 kHz if save-data enabled)
+    log_ee_positions:     list = []
+    log_target_positions: list = []
+    log_contact_forces:   list = []
+    log_desired_forces:   list = []
 
     # =========================================================================
     # 4. Connect to robot
@@ -402,6 +414,19 @@ def main() -> None:
                         log_force_actual.append(f_z)
                         log_force_errors.append(f_desired - f_z)
                         log_delta_taus.append(delta_tau.copy())
+                    
+                    # -- Full-rate data logging (if save-data enabled) -----------
+                    if args.save_data and args.data_dir:
+                        # EE position and target position from hybrid controller
+                        if hasattr(hybrid_controller, 'ee_pos') and hasattr(hybrid_controller, 'target_pos'):
+                            log_ee_positions.append(hybrid_controller.ee_pos.copy())
+                            log_target_positions.append(hybrid_controller.target_pos.copy())
+                        
+                        # Contact forces from robot state
+                        f6 = np.asarray(robot_state.O_F_ext_hat_K, dtype=np.float64)
+                        log_contact_forces.append(f6[:3].copy())  # Only linear forces, not torques
+                        log_desired_forces.append(f_desired)
+                    
                     _log_cycle += 1
 
                     # -- Finish check -----------------------------------------
@@ -429,36 +454,79 @@ def main() -> None:
         finally:
             gc.enable()
 
-        # =====================================================================
-        # 9. Summary
-        # =====================================================================
-        if log_force_errors:
-            fe_arr = np.array(log_force_errors)
-            dt_arr = np.array(log_delta_taus)
-            print("\n" + "=" * 60)
-            print("PPO EVALUATION SUMMARY")
-            print("=" * 60)
-            print(f"PPO steps logged   : {len(fe_arr)}")
-            print(f"Mean |force_error| : {np.mean(np.abs(fe_arr)):.3f} N")
-            print(f"Max  |force_error| : {np.max(np.abs(fe_arr)):.3f} N")
-            print(f"Std  |force_error| : {np.std(fe_arr):.3f} N")
-            if ppo_evaluator is not None and dt_arr.size > 0:
-                print(f"Mean ||Δτ||        : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
-            print(f"Total sim time     : {sim_time:.2f}s")
-            print("=" * 60)
+            # =====================================================================
+            # 9. Summary
+            # =====================================================================
+            if log_force_errors:
+                fe_arr = np.array(log_force_errors)
+                dt_arr = np.array(log_delta_taus)
+                print("\n" + "=" * 60)
+                print("PPO EVALUATION SUMMARY")
+                print("=" * 60)
+                print(f"PPO steps logged   : {len(fe_arr)}")
+                print(f"Mean |force_error| : {np.mean(np.abs(fe_arr)):.3f} N")
+                print(f"Max  |force_error| : {np.max(np.abs(fe_arr)):.3f} N")
+                print(f"Std  |force_error| : {np.std(fe_arr):.3f} N")
+                if ppo_evaluator is not None and dt_arr.size > 0:
+                    print(f"Mean ||Δτ||        : {np.mean(np.linalg.norm(dt_arr, axis=1)):.3f} Nm")
+                print(f"Total sim time     : {sim_time:.2f}s")
+                print("=" * 60)
 
-        # =====================================================================
-        # 10. Save plots
-        # =====================================================================
-        print("\n[MAIN] Generating plots...")
-        _save_plots(hybrid_controller, common_config, plot_dir)
-        _save_ppo_plots(
-            log_force_errors, log_force_actual, log_delta_taus,
-            f_desired, dt_action, plot_dir,
-            label="ppo_franka" if not args.no_ppo else "baseline",
-        )
-        print(f"\n[MAIN] Done. Plots saved to: {plot_dir}/")
-        print(f"[MAIN] Total control time  : {sim_time:.2f}s")
+            # =====================================================================
+            # 10. Save data (if enabled)
+            # =====================================================================
+            if args.save_data and args.data_dir:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamped_data_dir = os.path.join(args.data_dir, timestamp)
+                os.makedirs(timestamped_data_dir, exist_ok=True)
+                
+                # Copy config file if provided
+                if args.config is not None and os.path.exists(args.config):
+                    config_filename = os.path.basename(args.config)
+                    config_dest = os.path.join(timestamped_data_dir, config_filename)
+                    shutil.copy(args.config, config_dest)
+                    print(f"[MAIN] Config saved to: {config_dest}")
+                
+                # Prepare arrays
+                ee_positions     = np.array(log_ee_positions) if log_ee_positions else np.empty((0, 3))
+                target_positions = np.array(log_target_positions) if log_target_positions else np.empty((0, 3))
+                contact_forces   = np.array(log_contact_forces) if log_contact_forces else np.empty((0, 3))
+                desired_forces   = np.array(log_desired_forces) if log_desired_forces else np.empty((0,))
+                
+                # Compute errors if data available
+                if ee_positions.size > 0 and target_positions.size > 0 and ee_positions.shape == target_positions.shape:
+                    pos_error_full = np.linalg.norm(ee_positions - target_positions, axis=1)
+                else:
+                    pos_error_full = np.empty(0)
+                
+                # Save to npz
+                fname = "data_hybrid.npz"
+                fpath = os.path.join(timestamped_data_dir, fname)
+                np.savez(
+                    fpath,
+                    ee_positions=ee_positions,
+                    target_positions=target_positions,
+                    contact_forces=contact_forces,
+                    desired_forces=desired_forces,
+                    position_error=pos_error_full,
+                    force_errors=np.array(log_force_errors),
+                    force_actual=np.array(log_force_actual),
+                    delta_taus=np.array(log_delta_taus),
+                )
+                print(f"[MAIN] Data saved to: {fpath}")
+
+            # =====================================================================
+            # 11. Save plots
+            # =====================================================================
+            print("\n[MAIN] Generating plots...")
+            _save_plots(hybrid_controller, common_config, plot_dir)
+            _save_ppo_plots(
+                log_force_errors, log_force_actual, log_delta_taus,
+                f_desired, dt_action, plot_dir,
+                label="ppo_franka" if not args.no_ppo else "baseline",
+            )
+            print(f"\n[MAIN] Done. Plots saved to: {plot_dir}/")
+            print(f"[MAIN] Total control time  : {sim_time:.2f}s")
 
     except Exception as exc:
         print(f"\nError: {exc}")

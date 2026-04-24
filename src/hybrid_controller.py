@@ -354,7 +354,7 @@ class HybridController:
         F_ctrl_constraint = (
             self.config.F_desired_contact
             + control_force_compensation
-            + contact_force_compensation
+            # + contact_force_compensation
             + velocity_term
         )
 

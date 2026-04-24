@@ -92,8 +92,8 @@ def main() -> None:
     print(f"[CONFIG] Pinocchio      : {robot_cfg.pinocchio_xml_path}")
 
     common_config = ControllerConfig(motion_duration=sweep_duration)
-    common_config.size_z               = 0.002
-    common_config.gravity_compensation = True
+    common_config.size_z               = 0.0001
+    common_config.gravity_compensation = False
     common_config.use_pi               = args.use_pi
     common_config.euler                = np.array([0.0, 0.0, 0.0])
 
@@ -103,7 +103,7 @@ def main() -> None:
     if args.ki_force is not None:
         baseline_config.Ki_force = args.ki_force
 
-    q0 = np.array([0.0225, 0.7064, -0.0243, -2.3135, -0.0095, 3.0422, -0.2441])
+    q0 = np.array([0.1565, 0.5559, -0.1311, -2.3959, 0.0769, 2.9546, 0.7158])
 
     # =========================================================================
     # 3. Pinocchio model
@@ -182,7 +182,6 @@ def main() -> None:
         pino.getFrameJacobian(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
         pino.computeMinverse(pino_model, pino_data, _wq)
         pino.crba(pino_model, pino_data, _wq)
-        pino.computeGeneralizedGravity(pino_model, pino_data, _wq)
         pino.computeCoriolisMatrix(pino_model, pino_data, _wq, _wdq)
         pino.getFrameJacobianTimeVariation(pino_model, pino_data, _wfid, pino.LOCAL_WORLD_ALIGNED)
         del _wq, _wdq, _wfid
@@ -235,8 +234,8 @@ def main() -> None:
                     active_control.writeOnce(Torques(tau.tolist()))
 
                 else:  # STOPPED — gravity hold then exit
-                    q   = np.array(robot_state.q)
-                    tau = pino.computeGeneralizedGravity(pino_model, pino_data, q)
+                    # q   = np.array(robot_state.q)
+                    # tau = pino.computeGeneralizedGravity(pino_model, pino_data, q)
                     cmd = Torques(tau.tolist())
                     cmd.motion_finished = True
                     active_control.writeOnce(cmd)

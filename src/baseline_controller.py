@@ -165,6 +165,7 @@ class BaselineController:
         # ------------------------------------------------------------------
         if self.trajectory is not None:
             self.target_pos, self.x_dot_desired, self.x_ddot_desired = self.trajectory(elapsed)
+            # print(f"[BASELINE] Trajectory target_pos: {self.target_pos}, x_dot_desired: {self.x_dot_desired}, x_ddot_desired: {self.x_ddot_desired}")
             if elapsed >= self.common_config.motion_duration:
                 self.x_dot_desired[:] = 0.0
                 self.x_ddot_desired[:] = 0.0
@@ -213,6 +214,7 @@ class BaselineController:
         # F_des_6 = [force_mag * force_normal, 0, 0, 0]
         # ------------------------------------------------------------------
         F_des_6 = np.concatenate([self.config.force_mag * self.force_normal, np.zeros(3)])
+        # print(f"[BASELINE] F_des_6: {F_des_6}")
 
         if self.common_config.use_pi:
             F_ext = np.array(robot_state.O_F_ext_hat_K)
@@ -230,10 +232,9 @@ class BaselineController:
         tau_f = J.T @ F_des_6
 
         # ------------------------------------------------------------------
-        # Total torque + gravity + rate limiting
+        # Total torque + rate limiting
         # ------------------------------------------------------------------
-        g = pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
-        self.tau[:] = tau_motion + tau_f + tau_null + g
+        self.tau[:] = tau_motion + tau_f + tau_null
 
         last_tau = np.array(robot_state.tau_J_d)
         delta_tau = np.clip(

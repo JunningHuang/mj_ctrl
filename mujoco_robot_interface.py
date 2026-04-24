@@ -150,44 +150,102 @@ class MujocoRobotInterface:
         tau_J_d = self.data.ctrl[self.actuator_ids].copy()
         return MujocoRobotState(q, dq, O_T_EE_flat, O_F_ext_hat_K, tau_J_d), self.model.opt.timestep
 
-    def _estimate_external_forces(self, obj_name='slope_geom') -> np.ndarray:
+    def _estimate_external_forces(self, obj_name: str = 'slope_geom') -> np.ndarray:
         """
         Estimate external forces from MuJoCo contact sensors.
+
+        For slope geometry: uses hardcoded rotation to convert contact-frame normal
+        force to a local frame where pressing gives negative z-component.
+
+        For cylinder geometry (when cylinder_center/axis are set): computes the
+        outward surface normal from the EE position and returns the negated normal
+        force in world frame, matching the slope convention (pressing → negative
+        projection onto the outward normal).
 
         Returns:
             np.ndarray: Estimated external wrench [fx, fy, fz, tx, ty, tz] (6,)
         """
-        current_force_world = np.zeros(6)
         current_force_local = np.zeros(6)
-        contact_pos = None
-        if self.data.ncon > 0:
-            # Compute the contact forces.
-            contact_force_local = np.zeros(6)
-            for i in range(self.data.ncon):
-                contact = self.data.contact[i]
-                # if contact.geom1 == self.model.geom(obj_name).id or contact.geom2 == self.model.geom(obj_name).id:
-                if {contact.geom1, contact.geom2} == {self.model.geom(obj_name).id, self.model.geom("attachment_collision").id}:
-                    mujoco.mj_contactForce(self.model, self.data, i, contact_force_local)
-                    break
-            # Contact frame x-axis (normal) points FROM geom2 To geom1
-            # from slope to ee
-            contact_rot = contact.frame.reshape(3, 3).T # from local to world
-            # contact_rot_local = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]) # move normal force from x to z
-            # contact_pos = contact.pos.copy()
-            # force_local = contact_force_local[:3]
-            # moment_local = contact_force_local[3:]
-            # force_world = contact_rot @ force_local
-            # answer: moment_world = R @ moment_local + p × force_world
-            # moment_rotated = contact_rot @ moment_local
-            # position_cross_force = np.cross(contact_pos, force_world)
-            # moment_world = moment_rotated + position_cross_force
-            # current_force_world[:3] = force_world
-            # current_force_world[3:] = moment_world
-            # local force
+        if self.data.ncon == 0:
+            return current_force_local
+
+        contact_force_local = np.zeros(6)
+        contact = None
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            if {c.geom1, c.geom2} == {self.model.geom(obj_name).id, self.model.geom("attachment_collision").id}:
+                mujoco.mj_contactForce(self.model, self.data, i, contact_force_local)
+                contact = c
+                break
+
+        if contact is None:
+            return current_force_local
+
+        if self.cylinder_center is not None and self.cylinder_axis is not None:
+            # # Compute outward normal from EE position relative to cylinder axis.
+            # # Returns -normal * F_normal so that pressing gives a negative value
+            # # when projected onto S_f = [outward_normal, 0, 0, 0]^T.
+            # ee_pos = self.data.site(self.site_id).xpos.copy()
+            # radial = ee_pos - self.cylinder_center
+            # radial -= np.dot(radial, self.cylinder_axis) * self.cylinder_axis
+            # norm = np.linalg.norm(radial)
+            # if norm < 1e-6:
+            #     return current_force_local
+            # outward_normal = radial / norm
+            # f_normal = contact_force_local[0]  # repulsive (>= 0)
+            # current_force_local[:3] = -outward_normal * f_normal
+            
+            # contact.frame rows are [n̂, t̂₁, t̂₂] in world frame;
+            # R.T maps contact-frame scalars → world-frame vector.
+            # Negation preserves the convention: pressing → negative F_ext_phi.
+            R = contact.frame.reshape(3, 3)
+            current_force_local[:3] = (R.T @ contact_force_local[:3])
+            current_force_local[3:] = contact_force_local[3:]
+        else:
+            # Original slope convention: contact x (normal) maps to -local_z.
+            contact_rot = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
             current_force_local[:3] = contact_rot @ contact_force_local[:3]
             current_force_local[3:] = contact_force_local[3:]
-        # return current_force_world, current_force_local, contact_pos
+
         return current_force_local
+    # def _estimate_external_forces(self, obj_name='slope_geom') -> np.ndarray:
+    #     """
+    #     Estimate external forces from MuJoCo contact sensors.
+
+    #     Returns:
+    #         np.ndarray: Estimated external wrench [fx, fy, fz, tx, ty, tz] (6,)
+    #     """
+    #     current_force_world = np.zeros(6)
+    #     current_force_local = np.zeros(6)
+    #     contact_pos = None
+    #     if self.data.ncon > 0:
+    #         # Compute the contact forces.
+    #         contact_force_local = np.zeros(6)
+    #         for i in range(self.data.ncon):
+    #             contact = self.data.contact[i]
+    #             # if contact.geom1 == self.model.geom(obj_name).id or contact.geom2 == self.model.geom(obj_name).id:
+    #             if {contact.geom1, contact.geom2} == {self.model.geom(obj_name).id, self.model.geom("attachment_collision").id}:
+    #                 mujoco.mj_contactForce(self.model, self.data, i, contact_force_local)
+    #                 break
+    #         # Contact frame x-axis (normal) points FROM geom2 To geom1
+    #         # from slope to ee
+    #         contact_rot = contact.frame.reshape(3, 3).T # from local to world
+    #         # contact_rot_local = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]) # move normal force from x to z
+    #         # contact_pos = contact.pos.copy()
+    #         # force_local = contact_force_local[:3]
+    #         # moment_local = contact_force_local[3:]
+    #         # force_world = contact_rot @ force_local
+    #         # answer: moment_world = R @ moment_local + p × force_world
+    #         # moment_rotated = contact_rot @ moment_local
+    #         # position_cross_force = np.cross(contact_pos, force_world)
+    #         # moment_world = moment_rotated + position_cross_force
+    #         # current_force_world[:3] = force_world
+    #         # current_force_world[3:] = moment_world
+    #         # local force
+    #         current_force_local[:3] = contact_rot @ contact_force_local[:3]
+    #         current_force_local[3:] = contact_force_local[3:]
+    #     # return current_force_world, current_force_local, contact_pos
+    #     return current_force_local
 
     def writeOnce(self, t: Torques) -> None:
         """
