@@ -22,6 +22,7 @@ from src import (
     BaselineController,
     BaselineControllerConfig,
 )
+from src.experiment_manager import load_config, build_controller_config, build_trajectory
 from utils_plot import plot_ee_positions, plot_joint_torques, plot_force_error_z
 from utils_libfranka import euler_to_rot_matrix
 
@@ -64,6 +65,12 @@ def main() -> None:
         help="Seconds to skip at start when computing metrics (default: 1.0)"
     )
     parser.add_argument(
+        "--config", type=str, default=None,
+        help="Path to a YAML config file (e.g. baseline_flat_real_robot_config.yaml). "
+             "When provided, trajectory and controller settings are read from the file "
+             "instead of individual CLI flags."
+    )
+    parser.add_argument(
         "--save-plots", action="store_true",
         help="Save plots after run"
     )
@@ -96,13 +103,18 @@ def main() -> None:
     # ============================================================
     # 2. Configurations
     # ============================================================
-    common_config = ControllerConfig(motion_duration=args.circle_duration)
-    common_config.size_z               = 0.01
-    common_config.gravity_compensation = True
-    common_config.use_pi               = args.use_pi
-    common_config.euler                = np.array([np.deg2rad(args.slope_angle), 0.0, 0.0])
+    if args.config is not None:
+        raw = load_config(args.config)
+        common_config = build_controller_config(raw)
+        common_config.use_pi = args.use_pi
+    else:
+        common_config = ControllerConfig(motion_duration=args.circle_duration)
+        common_config.size_z               = 0.01
+        common_config.gravity_compensation = True
+        common_config.use_pi               = args.use_pi
+        common_config.euler                = np.array([np.deg2rad(args.slope_angle), 0.0, 0.0])
 
-    # Circle geometry (local variables; not on ControllerConfig in this repo)
+    # Circle geometry used only when no config file is given
     angular_speed = args.angular_speed
     circle_center = np.array([0.5205, -0.0059, 0.036])   # matches slope_pos default
     circle_radius = 0.1
@@ -154,13 +166,17 @@ def main() -> None:
         # ============================================================
         # 4. Controller
         # ============================================================
-        circle_traj = CircleTrajectory(
-            center=circle_center,
-            radius=circle_radius,
-            angular_speed=angular_speed,
-            R_slope=R_slope,
-            size_z=common_config.size_z,
-        )
+        if args.config is not None:
+            raw = load_config(args.config)
+            circle_traj = build_trajectory(raw, common_config)
+        else:
+            circle_traj = CircleTrajectory(
+                center=circle_center,
+                radius=circle_radius,
+                angular_speed=angular_speed,
+                R_slope=R_slope,
+                size_z=common_config.size_z,
+            )
         baseline_controller = BaselineController(
             baseline_config, common_config,
             n_joints=robot_cfg.n_joints,
