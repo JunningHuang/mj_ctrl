@@ -105,9 +105,9 @@ trajectory:
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
-  # center:        [0.4961, 0.0038, 0.0524]   # Center position [m]
+  # center:        [0.5038, 0.0108, 0.0857]   # Center position [m]
   # radius:        0.05                        # [m]
-  # angular_speed: 1.5                 # [rad/s]
+  # angular_speed: 3.14159265                  # [rad/s]
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
@@ -116,4 +116,4 @@ trajectory:
   # duration:  5.0                          # [s]
 
   # type: "fixed_point"
-  # fixed_pos: [0.4961, 0.0038, 0.0524]   # Uncomment to override default
+  # fixed_pos: [0.5038, 0.0108, 0.0857]   # Uncomment to override default
