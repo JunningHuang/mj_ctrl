@@ -58,10 +58,11 @@ from src import (
     get_robot_config,
 )
 from utils_libfranka import euler_to_rot_matrix
+from find_contact_q0 import solve_ik
 
 # Trajectory types available for randomised training
 # _TRAJ_TYPES = ("circle", "lissajous", "sinusoidal", "ramp_hold")
-_TRAJ_TYPES = ("circle", "sinusoidal")
+_TRAJ_TYPES = ("circle",)
 
 # Segment-type classification used for per-segment RMSE tracking:
 #   "curve"  – CircleTrajectory / LissajousTrajectory (always kinetic)
@@ -247,9 +248,9 @@ class HybridControlEnv:
                 size_z    = self.common_config.size_z,
             )
 
-        # Near-surface joint configuration (calibrated in run_hybrid_control_mujoco.py)
+        # Near-surface joint configuration — used as the IK seed and fallback.
         self.contact_q0 = np.array(
-            [0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684]
+            [0.18703, 0.603541, -0.132999, -2.291796, 0.181594, 2.840875, 0.6684]
         )
 
         # ----------------------------------------------------------------
@@ -258,6 +259,15 @@ class HybridControlEnv:
         self.pino_model    = pino.buildModelFromMJCF(self.robot_cfg.pinocchio_xml_path)
         self.pino_data     = self.pino_model.createData()
         self.pino_frame_id = self.pino_model.getFrameId(self.robot_cfg.ee_frame_name)
+
+        # Null-space reference q0 = contact_q0 (pre-solved IK for slope_pos / circle center).
+        self._null_q0 = self.contact_q0.copy()
+
+        # Per-episode start q0, solved via IK to place the EE at the
+        # trajectory's t=0 position.  Updated by _compute_start_q0() each
+        # time a new trajectory is sampled; also set once here for the fixed
+        # (non-randomised) trajectory so reset() always has a valid value.
+        self._traj_start_q0 = self._compute_start_q0(self._trajectory)
 
         # ----------------------------------------------------------------
         # MuJoCo interface  (viewer disabled for training)
@@ -292,6 +302,7 @@ class HybridControlEnv:
             n_joints=self.robot_cfg.n_joints,
             ee_frame_name=self.robot_cfg.ee_frame_name,
         )
+
 
         # ----------------------------------------------------------------
         # Observation normaliser
@@ -346,7 +357,7 @@ class HybridControlEnv:
         self.hybrid_controller.starting(
             self.sim_time,
             target_rot,
-            self.contact_q0,
+            self._null_q0,
             self.pino_model,
             self.pino_data,
         )
@@ -514,6 +525,9 @@ class HybridControlEnv:
         # Hot-swap the trajectory on the already-initialised hybrid controller
         self.hybrid_controller.trajectory = traj
 
+        # Solve IK so the robot starts exactly at the trajectory's t=0 position
+        self._traj_start_q0 = self._compute_start_q0(traj)
+
         # Phase 1.3 — randomise desired contact force
         f_chosen = random.choice(self._f_desired_choices)
         self.f_desired = f_chosen
@@ -553,9 +567,17 @@ class HybridControlEnv:
             return "hold" if float(np.linalg.norm(vel)) < 1e-6 else "line"
         return "line"
 
+    def _compute_start_q0(self, traj) -> np.ndarray:
+        """Return the IK solution that places the EE at traj's t=0 position."""
+        start_pos, _, _ = traj(0.0)
+        return solve_ik(
+            start_pos, self.contact_q0,
+            self.pino_model, self.pino_data, self.pino_frame_id,
+        )
+
     def _reset_to_home(self) -> None:
-        """Reset MuJoCo data to the home keyframe or fallback joint config."""
-        home_q0 = self.contact_q0.copy()
+        """Reset MuJoCo to the trajectory-specific start configuration."""
+        home_q0 = self._traj_start_q0.copy()
         self.mj.data.qpos[: len(home_q0)] = home_q0
         self.mj.data.qvel[:] = 0.0
         self.mj.data.ctrl[self.mj.actuator_ids] = np.array([  0.   , -36.454,  -1.728,  11.744,   0.283,   1.614,  -0.002])

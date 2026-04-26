@@ -57,6 +57,7 @@ from mujoco_robot_interface import MujocoRobotInterface, Torques
 
 from ppo_friction_compensation.ppo_agent import PPOAgent
 from ppo_friction_compensation.env_wrapper import WelfordNormalizer
+from find_contact_q0 import solve_ik
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +375,12 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 6. Reset simulation  (same as run_hybrid_control_mujoco.py)
     # ----------------------------------------------------------------
-    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
+    # null_q0: pre-solved IK for the circle center (slope_pos), null-space reference.
+    # q0:      IK for the trajectory's t=0 position (physical start, no position jump).
+    null_q0 = np.array([0.18703, 0.603541, -0.132999, -2.291796, 0.181594, 2.840875, 0.6684])
+    _traj_start_pos, _, _ = trajectory(0.0)
+    q0 = solve_ik(_traj_start_pos, null_q0, pino_model, pino_data, pino_frame_id)
+
     mujoco_interface.data.qpos[:len(q0)] = q0
     mujoco_interface.data.qvel[:]        = 0
     mujoco_interface.data.ctrl[mujoco_interface.actuator_ids] = (
@@ -387,7 +393,7 @@ def main() -> None:
     target_rot     = O_T_EE[:3, :3]
 
     sim_time = 0.0
-    hybrid_controller.starting(sim_time, target_rot, q0, pino_model, pino_data)
+    hybrid_controller.starting(sim_time, target_rot, null_q0, pino_model, pino_data)
 
     # ----------------------------------------------------------------
     # 7. Data logs

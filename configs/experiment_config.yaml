@@ -35,13 +35,13 @@ experiments_base_dir: "experiments_random_traj"
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           350
+  epochs:           100
   steps_per_epoch:  2000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
   clip_ratio:       0.2     # PPO clipping epsilon
   pi_lr:            3.0e-4  # Actor learning rate
-  vf_lr:            3.0e-4  # Critic learning rate
+  vf_lr:            1.0e-3  # Critic learning rate
   train_pi_iters:   80      # Actor gradient steps per epoch
   train_v_iters:    80      # Critic gradient steps per epoch
   target_kl:        0.01    # Early-stop KL threshold
