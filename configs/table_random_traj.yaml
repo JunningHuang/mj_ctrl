@@ -1,0 +1,91 @@
+# ==============================================================================
+# Experiment: random trajectory, flat table, no friction randomisation
+# ==============================================================================
+# Usage:
+#   python -m ppo_friction_compensation.train_ppo --config configs/table_random_traj.yaml
+# ==============================================================================
+
+experiment_name: null
+
+wandb:
+  project: "hybrid_motion_control_ppo"
+  entity:  "hybrid_motion_control"
+
+experiments_base_dir: "experiments_ranodom_traj"
+
+# ==============================================================================
+# Training hyperparameters
+# ==============================================================================
+training:
+  robot_type:       "fr3"
+  seed:             0
+  epochs:           200
+  steps_per_epoch:  4000
+  gamma:            0.99
+  lam:              0.97
+  clip_ratio:       0.2
+  pi_lr:            3.0e-4
+  vf_lr:            1.0e-3
+  train_pi_iters:   80
+  train_v_iters:    80
+  target_kl:        0.01
+  save_every:       50
+  num_workers:      4
+
+  randomize_trajectory:      true
+  randomize_surface_friction: false
+
+  f_desired_choices: [-8.0]
+
+# ==============================================================================
+# ControllerConfig
+# ==============================================================================
+controller:
+  size_z:    0.0001
+  slope_pos: [0.4961, 0.0038, 0.0524]
+
+  euler: [0.0, 0.0, 0.0]   # flat surface
+
+  dt:                   0.001
+  gravity_compensation: true
+  motion_duration:      4.0
+  position_tolerance:   0.01
+
+# ==============================================================================
+# HybridControllerConfig
+# ==============================================================================
+hybrid_controller:
+  Kpos:          0.95
+  Kori:          0.95
+  damping_ratio: 1.0
+
+  impedance_pos: [100.0, 100.0, 100.0]
+  impedance_ori: [50.0,  50.0,  50.0]
+  Kp_null:       [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
+
+  Kp_force: 0.4
+  Kd_force: 0.002
+  Ki_force: 0.4
+
+  F_desired_contact: [-8.0]
+  max_delta_tau:     1.0
+
+# ==============================================================================
+# Evaluation
+# ==============================================================================
+evaluation:
+  checkpoint: ""
+  out_dir:    "ppo_eval_plots"
+  viewer:     false
+  no_ppo:     false
+  surface_friction: 1.0
+
+# ==============================================================================
+# Trajectory  (used only when randomize_trajectory: false)
+# ==============================================================================
+trajectory:
+  type:            "sinusoidal"
+  start_pos:       [0.4961, 0.0038, 0.0524]
+  amplitude:       0.04
+  frequency:       2.0
+  direction_angle: 0.0

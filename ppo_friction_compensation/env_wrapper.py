@@ -184,6 +184,7 @@ class HybridControlEnv:
         randomize_trajectory: bool = True,
         f_desired_choices: Optional[List[float]] = None,
         randomize_surface_friction: bool = False,
+        max_delta_tau: Optional[float] = None,
     ) -> None:
 
         self.action_repeat            = action_repeat
@@ -219,6 +220,16 @@ class HybridControlEnv:
 
         self.hybrid_config   = hybrid_config if hybrid_config is not None else HybridControllerConfig()
         self.approach_config = CartesianSpacePDControlConfig()
+
+        # Rate-limit the *total* command (tau_hybrid + ppo_correction) per step.
+        # Inherit the limit from hybrid_config if not explicitly overridden, then
+        # disable the internal rate limit in hybrid_controller so only the final
+        # clip (applied after summation in step()) is active.
+        self.max_delta_tau = (
+            max_delta_tau if max_delta_tau is not None
+            else self.hybrid_config.max_delta_tau
+        )
+        self.hybrid_config.max_delta_tau = float("inf")
 
         # Build a default SinusoidalTrajectory if none was provided.
         # start_pos and size_z come from common_config so the trajectory is
@@ -372,8 +383,14 @@ class HybridControlEnv:
             # Base torque from hybrid controller
             tau_hybrid = self.hybrid_controller.update(self.sim_time, robot_state)
 
-            # Add PPO correction and send to MuJoCo
+            # Add PPO correction, then rate-limit the final command.
+            # robot_state.tau_J_d is data.ctrl from the previous writeOnce call,
+            # so it equals the actual total torque sent last step.
             tau_total = tau_hybrid + delta_tau
+            prev_tau  = np.asarray(robot_state.tau_J_d)
+            tau_total = prev_tau + np.clip(
+                tau_total - prev_tau, -self.max_delta_tau, self.max_delta_tau
+            )
             self.mj.writeOnce(Torques(tau_total.tolist()))
 
             self.sim_time += 0.001
@@ -437,9 +454,8 @@ class HybridControlEnv:
         self._traj_tag = traj_type
 
         if traj_type == "circle":
-            radius        = random.uniform(0.02, 0.06)
-            # Tangential speed in [0.02, 0.08] m/s → angular_speed = speed / radius
-            angular_speed = random.uniform(0.02, 0.08) / radius
+            radius        = random.uniform(0.05, 0.1)
+            angular_speed = random.uniform(3 * np.pi, 4.5 * np.pi)
             traj = CircleTrajectory(
                 center        = slope_pos.copy(),
                 radius        = radius,
@@ -450,8 +466,8 @@ class HybridControlEnv:
 
         elif traj_type == "lissajous":
             freq_ratio = random.choice([(1, 1), (1, 2), (2, 3)])
-            amplitude  = random.uniform(0.02, 0.05)
-            base_freq  = random.uniform(0.3, 0.8)
+            amplitude  = random.uniform(0.05, 0.1)
+            base_freq  = random.uniform(0.75, 1.5)
             traj = LissajousTrajectory(
                 center       = slope_pos.copy(),
                 x_amplitude  = amplitude,
@@ -465,8 +481,8 @@ class HybridControlEnv:
             )
 
         elif traj_type == "sinusoidal":
-            amplitude       = random.uniform(0.02, 0.06)
-            frequency       = random.uniform(0.5, 1.5)
+            amplitude       = random.uniform(0.05, 0.1)
+            frequency       = random.uniform(1.5, 2.25)
             direction_angle = random.choice([0.0, np.pi / 2.0, np.pi / 4.0])
             traj = SinusoidalTrajectory(
                 start_pos       = slope_pos.copy(),
