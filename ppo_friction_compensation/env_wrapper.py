@@ -246,10 +246,7 @@ class HybridControlEnv:
                 size_z    = self.common_config.size_z,
             )
 
-        # Near-surface joint configuration (calibrated in run_hybrid_control_mujoco.py)
-        self.contact_q0 = np.array(
-            [0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684]
-        )
+        self.contact_q0 = self.common_config.contact_q0
 
         # ----------------------------------------------------------------
         # Pinocchio model (shared between hybrid ctrl and obs computation)
@@ -269,11 +266,12 @@ class HybridControlEnv:
 
         # Set default surface friction (first param of attachment_collision geom).
         # When randomize_surface_friction=True this is overridden each episode
-        # in reset(); otherwise it stays at the XML default (1.0).
+        # in reset(); otherwise it stays at the XML default.
+        # Has no effect when condim=1 (frictionless scenes).
         try:
-            self.mj.model.geom("slope_geom").friction[0] = 1.0
+            self.mj.model.geom("attachment_collision").friction[0] = 1.0
         except Exception:
-            pass   # geom may not exist for all scenes; non-fatal
+            pass
 
         # ----------------------------------------------------------------
         # Controllers
@@ -526,9 +524,8 @@ class HybridControlEnv:
         drawn uniformly from [0.3, 1.0].  The remaining parameters
         (rolling friction = 0.02, spinning friction = 0.01) are unchanged.
 
-        Because attachment_collision has contact priority=1 it takes
-        precedence over the slope_geom when MuJoCo resolves contact
-        parameters, so this directly controls the effective sliding friction.
+        Because attachment_collision has contact priority=1 it determines
+        the effective sliding friction. Has no effect when condim=1.
         """
         friction = random.uniform(0.3, 1.0)
         self.mj.model.geom("attachment_collision").friction[0] = friction

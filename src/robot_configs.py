@@ -20,19 +20,35 @@ class RobotConfig:
     ee_frame_name: str = "attachment_site"  # Frame name in Pinocchio model
 
 
-# FR3 Robot Configuration
+# FR3 — no joint friction, no surface friction (condim=1)
 FR3_CONFIG = RobotConfig(
     name="fr3",
-    pinocchio_xml_path="franka_fr3/fr3_no_joint_friction.xml",
-    mujoco_scene_xml_path="franka_fr3/scene.xml",
+    pinocchio_xml_path="franka_fr3/fr3_no_jointf_no_surff.xml",
+    mujoco_scene_xml_path="franka_fr3/scene_no_surff.xml",
     joint_names=[
-        'fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4', 
+        'fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4',
         'fr3_joint5', 'fr3_joint6', 'fr3_joint7'
     ],
     n_joints=7,
     q0=np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853]),
     target_quat=np.array([0., 0.7071, 0.7071, 0.]),
-    ee_frame_name="attachment"
+    ee_frame_name="attachment_site"
+)
+
+
+# FR3 — no joint friction, with surface friction (condim=6)
+FR3_FRICTION_CONFIG = RobotConfig(
+    name="fr3_friction",
+    pinocchio_xml_path="franka_fr3/fr3_no_joint_friction.xml",
+    mujoco_scene_xml_path="franka_fr3/scene.xml",
+    joint_names=[
+        'fr3_joint1', 'fr3_joint2', 'fr3_joint3', 'fr3_joint4',
+        'fr3_joint5', 'fr3_joint6', 'fr3_joint7'
+    ],
+    n_joints=7,
+    q0=np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853]),
+    target_quat=np.array([0., 0.7071, 0.7071, 0.]),
+    ee_frame_name="attachment_site"
 )
 
 
@@ -70,9 +86,10 @@ PANDA_CONFIG = RobotConfig(
 
 # Robot configuration registry
 ROBOT_CONFIGS = {
-    "fr3": FR3_CONFIG,
-    "kuka": KUKA_CONFIG,
-    "panda": PANDA_CONFIG,
+    "fr3":         FR3_CONFIG,
+    "fr3_friction": FR3_FRICTION_CONFIG,
+    "kuka":        KUKA_CONFIG,
+    "panda":       PANDA_CONFIG,
 }
 
 

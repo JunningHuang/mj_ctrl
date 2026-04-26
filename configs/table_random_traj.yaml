@@ -46,6 +46,11 @@ controller:
 
   euler: [0.0, 0.0, 0.0]   # flat surface
 
+  # !! RECALIBRATE if slope_pos changes !!
+  # Joint configuration with EE just above the contact surface.
+  # To find: run the sim with --viewer, move the arm to contact, read joint angles.
+  contact_q0: [0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684]
+
   dt:                   0.001
   gravity_compensation: true
   motion_duration:      4.0

@@ -370,7 +370,7 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 6. Reset simulation  (same as run_hybrid_control_mujoco.py)
     # ----------------------------------------------------------------
-    q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
+    q0 = common_config.contact_q0
     mujoco_interface.data.qpos[:len(q0)] = q0
     mujoco_interface.data.qvel[:]        = 0
     mujoco_interface.data.ctrl[mujoco_interface.actuator_ids] = (

@@ -54,6 +54,10 @@ class ControllerConfig:
                           inside HybridController AND to compute R_slope for
                           surface trajectories.
     use_table           : Whether the scene uses a flat table geometry.
+    contact_q0          : Joint configuration with the end-effector just above
+                          the contact surface [rad].  Used as the starting pose
+                          for training episodes and evaluation resets.
+                          MUST be re-calibrated whenever slope_pos changes.
     """
 
     # Scene geometry (slope body placement in the MuJoCo world)
@@ -68,11 +72,17 @@ class ControllerConfig:
     euler:                np.ndarray = None
     use_table:            bool       = False
 
+    # Starting joint configuration — EE just above the contact surface.
+    # Re-calibrate this whenever slope_pos changes.
+    contact_q0: np.ndarray = None
+
     def __post_init__(self) -> None:
         if self.slope_pos is None:
             self.slope_pos = np.array([0.5038, 0.0108, 0.0857])
         if self.euler is None:
             self.euler = np.array([0.0, 0.0, 0.0])
+        if self.contact_q0 is None:
+            self.contact_q0 = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ControllerConfig":
@@ -92,4 +102,6 @@ class ControllerConfig:
             kwargs["slope_pos"] = np.asarray(d["slope_pos"], dtype=float)
         if "euler" in d:
             kwargs["euler"] = np.asarray(d["euler"], dtype=float)
+        if "contact_q0" in d:
+            kwargs["contact_q0"] = np.asarray(d["contact_q0"], dtype=float)
         return cls(**kwargs)

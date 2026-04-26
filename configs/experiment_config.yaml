@@ -97,6 +97,11 @@ controller:
   size_z:    0.0001                     # Slope thickness [m]
   slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
 
+  # !! RECALIBRATE if slope_pos changes !!
+  # Joint configuration with EE just above the contact surface.
+  # To find: run the sim with --viewer, move the arm to contact, read joint angles.
+  contact_q0: [0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684]
+
   # -- Surface orientation ----------------------------------------------------
   # Used by HybridController to build constraint-frame selection matrices,
   # and by build_trajectory to compute R_slope for surface trajectories.
