@@ -18,13 +18,13 @@ experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 # Weights & Biases logging (optional)
 # Set project to enable wandb; leave null to disable.
 # ==============================================================================
-# wandb:
-#   project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
-#   entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
-
 wandb:
-  project: null    # e.g. "ppo-friction-compensation"
-  entity:  null    # e.g. "your-username-or-team" (null = your default entity)
+  project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
+  entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
+
+# wandb:
+#   project: null    # e.g. "ppo-friction-compensation"
+#   entity:  null    # e.g. "your-username-or-team" (null = your default entity)
 
 # Root directory under which the experiment folder is created.
 experiments_base_dir: "experiments_random_traj"
@@ -150,7 +150,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments_random_traj/run_20260426_212046/checkpoints/final"
+  checkpoint: "experiments_random_traj/run_20260426_202752/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
@@ -184,17 +184,17 @@ trajectory:
   # -- Sinusoidal --------------------------------------------------------------
   # Back-and-forth along a surface-plane axis.  direction_angle selects the
   # axis: 0 = x, π/2 = y, π/4 = diagonal.
-  # type: "sinusoidal"
-  # start_pos:       [0.5038, 0.0108, 0.0857]
-  # amplitude:       0.04    # Half-amplitude [m]
-  # frequency:       2.0     # Oscillation frequency [Hz]
-  # direction_angle: 0.0     # Axis angle in surface plane [rad]
+  type: "sinusoidal"
+  start_pos:       [0.5038, 0.0108, 0.0857]
+  amplitude:       0.04    # Half-amplitude [m]
+  frequency:       2.0     # Oscillation frequency [Hz]
+  direction_angle: 0.0     # Axis angle in surface plane [rad]
 
   # # -- Circle ------------------------------------------------------------------
-  type: "circle"
-  center:        [0.5038, 0.0108, 0.0857]
-  radius:        0.01           # [m]
-  angular_speed: 6.28     # [rad/s]  (tangential speed = radius × angular_speed)
+  # type: "circle"
+  # center:        [0.5038, 0.0108, 0.0857]
+  # radius:        0.05           # [m]
+  # angular_speed: 3.14159265     # [rad/s]  (tangential speed = radius × angular_speed)
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
