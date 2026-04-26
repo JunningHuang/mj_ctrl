@@ -184,8 +184,10 @@ def train(
           f"randomize_surface_friction={randomize_surface_friction}")
 
     # Keyword arguments shared between the main-process env and all workers
+    episode_dur = common_config.motion_duration if common_config is not None else 10.0
     _env_kwargs = dict(
         robot_type                  = robot_type,
+        episode_duration            = episode_dur,
         common_config               = common_config,
         hybrid_config               = hybrid_config,
         trajectory                  = trajectory,
