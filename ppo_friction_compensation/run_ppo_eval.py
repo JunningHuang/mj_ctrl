@@ -337,10 +337,14 @@ def main() -> None:
     # 4. Load PPO agent + normalizer
     # ----------------------------------------------------------------
     if not no_ppo:
-        agent = PPOAgent(obs_dim=25, act_dim=7)
+        # Infer obs_dim from the saved checkpoint to handle models trained with
+        # a different observation layout (e.g. 18-dim vs. current 25-dim).
+        _actor_ckpt = torch.load(f"{checkpoint}_actor.pt", map_location="cpu")
+        obs_dim_ckpt = _actor_ckpt["mean_net.0.weight"].shape[1]
+        agent = PPOAgent(obs_dim=obs_dim_ckpt, act_dim=7)
         agent.load(checkpoint)
         agent.actor.eval()
-        normalizer = WelfordNormalizer(25)
+        normalizer = WelfordNormalizer(obs_dim_ckpt)
         normalizer.load(f"{checkpoint}_normalizer.npz")
         print(f"[PPO]   Checkpoint loaded ({normalizer.n} normalizer samples)")
     else:
