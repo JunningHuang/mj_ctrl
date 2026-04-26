@@ -8,14 +8,21 @@ conda env create -f environment.yml
 ```
 
 ## Usage
+
+**Config-file workflow (recommended):**
 ```bash
-python -m ppo_friction_compensation.train_ppo   --epochs 200   --steps-per-epoch 4000   --save-dir ppo_checkpoints # full training
+python -m ppo_friction_compensation.train_ppo --config configs/experiment_config.yaml
 
-python -m ppo_friction_compensation.train_ppo   --epochs 3   --steps-per-epoch 1000   --train-pi-iters 10   --train-v-iters 10   --save-every 3   --save-dir /tmp/ppo_test # minimal test training run
+python -m ppo_friction_compensation.run_ppo_eval --config configs/experiment_config.yaml --checkpoint ppo_checkpoints/final
+```
 
-python run_ppo_eval.py --checkpoint ppo_checkpoints/final --no-ppo # evaluate without viewer
+**Legacy flag-based workflow:**
+```bash
+python -m ppo_friction_compensation.train_ppo --epochs 200 --steps-per-epoch 4000 --save-dir ppo_checkpoints
 
+python -m ppo_friction_compensation.train_ppo --epochs 3 --steps-per-epoch 1000 --train-pi-iters 10 --train-v-iters 10 --save-every 3 --save-dir /tmp/ppo_test # minimal test run
 
+python -m ppo_friction_compensation.run_ppo_eval --checkpoint ppo_checkpoints/final --no-ppo # evaluate without viewer
 ```
 
 ## Acknowledgements
