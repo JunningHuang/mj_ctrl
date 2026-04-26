@@ -483,7 +483,7 @@ class HybridControlEnv:
 
         elif traj_type == "sinusoidal":
             amplitude       = random.uniform(0.02, 0.06)
-            frequency       = random.uniform(0.5, 1.5)
+            frequency       = random.uniform(1.0, 2.2)
             direction_angle = random.choice([0.0, np.pi / 2.0, np.pi / 4.0])
             traj = SinusoidalTrajectory(
                 start_pos       = slope_pos.copy(),
