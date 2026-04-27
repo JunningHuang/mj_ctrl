@@ -61,8 +61,8 @@ from utils_libfranka import euler_to_rot_matrix
 from find_contact_q0 import solve_ik
 
 # Trajectory types available for randomised training
-# _TRAJ_TYPES = ("circle", "lissajous", "sinusoidal", "ramp_hold")
-_TRAJ_TYPES = ("circle",)
+_TRAJ_TYPES = ("circle", "lissajous", "sinusoidal", "ramp_hold")
+# _TRAJ_TYPES = ("circle",)
 
 # Segment-type classification used for per-segment RMSE tracking:
 #   "curve"  – CircleTrajectory / LissajousTrajectory (always kinetic)
@@ -467,7 +467,7 @@ class HybridControlEnv:
 
         if traj_type == "circle":
             radius        = random.uniform(0.08, 0.12)
-            angular_speed = random.uniform(1 * np.pi, 2 * np.pi)
+            angular_speed = random.uniform(2 * np.pi, 3.0 * np.pi)
             traj = CircleTrajectory(
                 center        = slope_pos.copy(),
                 radius        = radius,
@@ -478,8 +478,8 @@ class HybridControlEnv:
 
         elif traj_type == "lissajous":
             freq_ratio = random.choice([(1, 1), (1, 2), (2, 3)])
-            amplitude  = random.uniform(0.02, 0.05)
-            base_freq  = random.uniform(0.3, 0.8)
+            amplitude  = random.uniform(0.05, 0.1)
+            base_freq  = random.uniform(0.75, 1.25)
             traj = LissajousTrajectory(
                 center       = slope_pos.copy(),
                 x_amplitude  = amplitude,
@@ -493,8 +493,8 @@ class HybridControlEnv:
             )
 
         elif traj_type == "sinusoidal":
-            amplitude       = random.uniform(0.02, 0.06)
-            frequency       = random.uniform(1.0, 2.2)
+            amplitude       = random.uniform(0.05, 0.1)
+            frequency       = random.uniform(1.5, 2.2)
             direction_angle = random.choice([0.0, np.pi / 2.0, np.pi / 4.0])
             traj = SinusoidalTrajectory(
                 start_pos       = slope_pos.copy(),

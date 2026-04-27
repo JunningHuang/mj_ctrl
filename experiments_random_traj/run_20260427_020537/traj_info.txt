@@ -1,0 +1,10 @@
+if traj_type == "circle":
+            radius        = random.uniform(0.08, 0.12)
+            angular_speed = random.uniform(1 * np.pi, 2 * np.pi)
+            traj = CircleTrajectory(
+                center        = slope_pos.copy(),
+                radius        = radius,
+                angular_speed = angular_speed,
+                R_slope       = R_slope,
+                size_z        = size_z,
+            )

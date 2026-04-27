@@ -1,0 +1,23 @@
+_TRAJ_TYPES = ("circle", "sinusoidal")
+if traj_type == "circle":
+            radius        = random.uniform(0.08, 0.12)
+            angular_speed = random.uniform(1 * np.pi, 2 * np.pi)
+            traj = CircleTrajectory(
+                center        = slope_pos.copy(),
+                radius        = radius,
+                angular_speed = angular_speed,
+                R_slope       = R_slope,
+                size_z        = size_z,
+            )
+elif traj_type == "sinusoidal":
+            amplitude       = random.uniform(0.02, 0.06)
+            frequency       = random.uniform(1.0, 2.2)
+            direction_angle = random.choice([0.0, np.pi / 2.0, np.pi / 4.0])
+            traj = SinusoidalTrajectory(
+                start_pos       = slope_pos.copy(),
+                amplitude       = amplitude,
+                frequency       = frequency,
+                R_slope         = R_slope,
+                size_z          = size_z,
+                direction_angle = direction_angle,
+            )
