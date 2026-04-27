@@ -78,7 +78,7 @@ training:
   #   randomize_trajectory: true,  randomize_surface_friction: true
   #       → random trajectory type/params AND random surface friction
   # ---------------------------------------------------------------------------
-  randomize_surface_friction: false
+  randomize_surface_friction: true
 
   # ---------------------------------------------------------------------------
   # Phase 1.3 — Desired-force randomisation
