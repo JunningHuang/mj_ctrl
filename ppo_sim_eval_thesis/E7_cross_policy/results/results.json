@@ -1,0 +1,42 @@
+{
+  "metadata": {
+    "experiment": "E7",
+    "description": "Cross-policy comparison \u2014 sinusoidal trajectory, \u03bc=0.7, Fd=-8 N. Exp-A (specialised) vs Exp-B (multi-trajectory).",
+    "checkpoint_A": "experiments/run_20260306_114434/checkpoints/final",
+    "checkpoint_B": "experiments_random_traj/run_20260427_020537/checkpoints/final",
+    "n_runs": 3,
+    "mu": 0.7,
+    "f_desired": -8.0,
+    "motion_duration": 5.0,
+    "transient_skip_s": 1.0
+  },
+  "results": {
+    "hfdc": {
+      "runs": [
+        1.882631432800656,
+        1.882631432800656,
+        1.882631432800656
+      ],
+      "mean": 1.882631432800656,
+      "std": 0.0
+    },
+    "ppo_exp_a": {
+      "runs": [
+        0.4134980392593581,
+        0.4134980392593581,
+        0.4134980392593581
+      ],
+      "mean": 0.4134980392593581,
+      "std": 0.0
+    },
+    "ppo_exp_b": {
+      "runs": [
+        7.975956340355142,
+        7.975956340355142,
+        7.975956340355142
+      ],
+      "mean": 7.975956340355142,
+      "std": 0.0
+    }
+  }
+}
