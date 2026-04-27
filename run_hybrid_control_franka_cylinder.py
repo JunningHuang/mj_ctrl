@@ -21,6 +21,7 @@
 #       [--use-pi] [--save-plots] [--save-data]
 # ------------------------------------------------------------------------------
 import argparse
+from datetime import datetime
 import gc
 import os
 
@@ -255,12 +256,16 @@ def main() -> None:
     parser.add_argument("--use-pi",        action="store_true",
                         help="Add PI force correction on top of the force control")
     parser.add_argument("--save-plots",    action="store_true")
-    parser.add_argument("--plot-dir",      type=str,
-                        default="plots/franka_cylinder")
     parser.add_argument("--save-data",     action="store_true")
-    parser.add_argument("--data-dir",      type=str,
-                        default="cylinder_experiments/data/real")
+    parser.add_argument("--results-dir",   type=str,
+                        default="cylinder_experiments",
+                        help="Base directory for saving data and plots (timestamped subdirs created)")
     args = parser.parse_args()
+    
+    # Create timestamped subdirectory for this run
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = os.path.join(args.results_dir, timestamp)
+    os.makedirs(results_dir, exist_ok=True)
 
     # =========================================================================
     # 1. Build sweep parameters and configs
@@ -542,7 +547,7 @@ def main() -> None:
             _save_debug_csv(
                 log_f_ext, log_f_ext_phi, log_f_ext_x,
                 log_tau_ctrl_v, log_tau_ctrl_x, log_tau_ctrl_phi, log_tau_final,
-                common_config.dt, args.data_dir,
+                common_config.dt, results_dir,
             )
         except Exception as csv_exc:
             print(f"[WARN] Could not save debug CSV: {csv_exc}")
@@ -570,18 +575,17 @@ def main() -> None:
     print(f"VAR_POSITION_ERROR: {np.var(pos_err):.6f}")
 
     if args.save_data:
-        os.makedirs(args.data_dir, exist_ok=True)
         np.savez(
-            os.path.join(args.data_dir, "data.npz"),
+            os.path.join(results_dir, "data.npz"),
             t=t, pos_err=pos_err, force_err=force_err,
             f_normal_proj=f_proj, f_desired=args.force_desired,
             ee_pos=ep, target_pos=tp,
         )
-        print(f"[DATA] Saved → {args.data_dir}/data.npz")
+        print(f"[DATA] Saved → {results_dir}/data.npz")
 
     if args.save_plots:
         _save_plots(log_ee_pos, log_tgt_pos, log_cf, log_normals,
-                    args.force_desired, common_config.dt, args.plot_dir)
+                    args.force_desired, common_config.dt, results_dir)
 
     print("\n[DONE] Cylinder hybrid control finished.")
 

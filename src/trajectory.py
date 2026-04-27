@@ -13,7 +13,7 @@ from typing import Tuple
 # ──────────────────────────────────────────────────────────────────────────────
 # Cylinder geometry constants (shared with cylinder_helper.py)
 # ──────────────────────────────────────────────────────────────────────────────
-CYLINDER_CENTER = np.array([0.5, 0.0, 0.45])
+CYLINDER_CENTER = np.array([0.48, 0.0, 0.0])
 CYLINDER_AXIS   = np.array([1.0, 0.0, 0.0])
 CYLINDER_RADIUS = 0.1
 
