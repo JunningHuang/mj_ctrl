@@ -2,7 +2,7 @@
 E4 — Angular speed sweep on circular trajectory (Exp-B policy, μ=1.0, Fd=-8 N).
 
 Sweep: ω ∈ {0.5π, 1.0π, 1.5π, 2.0π, 2.5π, 3.0π} rad/s, r=0.1 m.
-Exp-B trained with ω ∼ U[2π, 3π] rad/s.
+Exp-B trained with ω ∼ U[π, 2π] rad/s.
 
 Run from repo root:
     python -m ppo_sim_eval_thesis.E4_angular_speed.run_eval
@@ -85,7 +85,7 @@ def main():
         "f_desired": F_DESIRED,
         "motion_duration": MOTION_DURATION,
         "transient_skip_s": TRANSIENT_SKIP,
-        "train_omega_range": [2.0, 3.0],
+        "train_omega_range": [1.0, 2.0],
     }
 
     out = {"metadata": meta, "results": results}
