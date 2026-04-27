@@ -1,8 +1,25 @@
 {
   "metadata": {
     "experiment": "E5",
-    "description": "Per-trajectory-type breakdown \u2014 Exp-B policy (\u03bc=1.0, Fd=-8 N)",
-    "checkpoint": "experiments_random_traj/run_20260427_020537/checkpoints/final",
+    "description": "Per-trajectory-type breakdown \u2014 models B/C/D vs HFDC baseline (\u03bc=1.0, Fd=-8 N)",
+    "conditions": {
+      "hfdc": {
+        "checkpoint": null,
+        "label": "HFDC"
+      },
+      "ppo_B": {
+        "checkpoint": "experiments_random_traj/run_20260427_020537/checkpoints/final",
+        "label": "HFDC+PPO (B)"
+      },
+      "ppo_C": {
+        "checkpoint": "experiments_random_traj/run_20260426_232324/checkpoints/final",
+        "label": "HFDC+PPO (C)"
+      },
+      "ppo_D": {
+        "checkpoint": "experiments_random_traj/random_trajectory_and_surface_friction/checkpoints/final",
+        "label": "HFDC+PPO (D)"
+      }
+    },
     "n_runs": 3,
     "traj_types": [
       "circle",
@@ -53,7 +70,7 @@
         "std": 6.938893903907228e-18
       }
     },
-    "hfdc_ppo": {
+    "ppo_B": {
       "circle": {
         "runs": [
           0.25928007537448455,
@@ -88,6 +105,82 @@
           8.0
         ],
         "mean": 8.0,
+        "std": 0.0
+      }
+    },
+    "ppo_C": {
+      "circle": {
+        "runs": [
+          0.6602516583922698,
+          0.6602516583922698,
+          0.6602516583922698
+        ],
+        "mean": 0.6602516583922698,
+        "std": 0.0
+      },
+      "sinusoidal": {
+        "runs": [
+          1.0528620208026016,
+          1.0528620208026016,
+          1.0528620208026016
+        ],
+        "mean": 1.0528620208026016,
+        "std": 0.0
+      },
+      "lissajous": {
+        "runs": [
+          1.4072446230435465,
+          1.4072446230435465,
+          1.4072446230435465
+        ],
+        "mean": 1.4072446230435467,
+        "std": 2.220446049250313e-16
+      },
+      "ramp_hold": {
+        "runs": [
+          0.1981028198451796,
+          0.1981028198451796,
+          0.1981028198451796
+        ],
+        "mean": 0.1981028198451796,
+        "std": 0.0
+      }
+    },
+    "ppo_D": {
+      "circle": {
+        "runs": [
+          0.6992853797233237,
+          0.6992853797233237,
+          0.6992853797233237
+        ],
+        "mean": 0.6992853797233237,
+        "std": 0.0
+      },
+      "sinusoidal": {
+        "runs": [
+          2.3218972534630087,
+          2.3218972534630087,
+          2.3218972534630087
+        ],
+        "mean": 2.3218972534630087,
+        "std": 0.0
+      },
+      "lissajous": {
+        "runs": [
+          2.424964260826145,
+          2.424964260826145,
+          2.424964260826145
+        ],
+        "mean": 2.424964260826145,
+        "std": 0.0
+      },
+      "ramp_hold": {
+        "runs": [
+          0.12050320245039624,
+          0.12050320245039624,
+          0.12050320245039624
+        ],
+        "mean": 0.12050320245039624,
         "std": 0.0
       }
     }
