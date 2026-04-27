@@ -355,6 +355,11 @@ def main() -> None:
     # ----------------------------------------------------------------
     # 5. Build MuJoCo interface + hybrid controller
     # ----------------------------------------------------------------
+    # Mirror env_wrapper: rate-limit the combined (hybrid + PPO) torque here,
+    # so the HybridController must NOT rate-limit internally.
+    eval_max_delta_tau = hybrid_config.max_delta_tau   # 1.0 Nm/step from config
+    hybrid_config.max_delta_tau = float("inf")
+
     hybrid_controller = HybridController(
         hybrid_config, common_config,
         trajectory=trajectory,
@@ -459,6 +464,10 @@ def main() -> None:
                     )
 
             tau_total = tau_hybrid + current_delta_tau
+            prev_tau  = np.asarray(robot_state.tau_J_d)
+            tau_total = prev_tau + np.clip(
+                tau_total - prev_tau, -eval_max_delta_tau, eval_max_delta_tau
+            )
             mujoco_interface.writeOnce(Torques(tau_total.tolist()))
 
             if hybrid_controller.is_finished():
