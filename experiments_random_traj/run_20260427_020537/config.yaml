@@ -1,0 +1,222 @@
+# ==============================================================================
+# Unified Experiment Configuration
+# ==============================================================================
+# This file is the single source of truth for one training run.
+# Edit values here; the training script, ControllerConfig, HybridControllerConfig,
+# and the Trajectory are all built from this file.
+#
+# Usage:
+#   python -m ppo_friction_compensation.train_ppo --config configs/experiment_config.yaml
+#   python run_hybrid_control_mujoco.py            --config configs/experiment_config.yaml
+#   python run_hybrid_control_franka.py  --ip <ip> --config configs/experiment_config.yaml
+# ==============================================================================
+
+# Optional human-readable label.  If null, a timestamped name is generated.
+experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
+
+# ==============================================================================
+# Weights & Biases logging (optional)
+# Set project to enable wandb; leave null to disable.
+# ==============================================================================
+wandb:
+  project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
+  entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
+
+# wandb:
+#   project: null    # e.g. "ppo-friction-compensation"
+#   entity:  null    # e.g. "your-username-or-team" (null = your default entity)
+
+# Root directory under which the experiment folder is created.
+experiments_base_dir: "experiments_random_traj"
+
+# ==============================================================================
+# Training hyperparameters
+# ==============================================================================
+training:
+  robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
+  seed:             0
+  epochs:           150
+  steps_per_epoch:  2000
+  gamma:            0.99    # Discount factor
+  lam:              0.97    # GAE lambda
+  clip_ratio:       0.2     # PPO clipping epsilon
+  pi_lr:            3.0e-4  # Actor learning rate
+  vf_lr:            1.0e-3  # Critic learning rate
+  train_pi_iters:   80      # Actor gradient steps per epoch
+  train_v_iters:    80      # Critic gradient steps per epoch
+  target_kl:        0.01    # Early-stop KL threshold
+  save_every:       20      # Save checkpoint every N epochs
+
+  # ---------------------------------------------------------------------------
+  # Parallel rollout collection
+  # Number of independent MuJoCo worker processes for data collection.
+  # Each worker collects steps_per_epoch // num_workers steps in parallel;
+  # the PPO update always runs in the main process.
+  # 1  = single-process (original behaviour, no subprocess overhead)
+  # 4  = recommended starting point on a multi-core machine
+  # ---------------------------------------------------------------------------
+  num_workers: 8
+
+  # ---------------------------------------------------------------------------
+  # Phase 1.2 — Trajectory diversity
+  # Set randomize_trajectory: true to sample a new trajectory each episode.
+  # When false, the trajectory defined in the `trajectory` section below is
+  # used for every episode.
+  # ---------------------------------------------------------------------------
+  randomize_trajectory: true
+
+  # ---------------------------------------------------------------------------
+  # Surface friction randomisation
+  # Set randomize_surface_friction: true to sample a new sliding friction
+  # coefficient for the contact surface each episode.  The first friction
+  # parameter of the attachment_collision geom is drawn uniformly from
+  # [0.3, 1.0]; the remaining parameters (0.02, 0.01) are kept fixed.
+  #
+  # Combination rules:
+  #   randomize_trajectory: false, randomize_surface_friction: true
+  #       → fixed sinusoidal trajectory + random surface friction
+  #   randomize_trajectory: true,  randomize_surface_friction: true
+  #       → random trajectory type/params AND random surface friction
+  # ---------------------------------------------------------------------------
+  randomize_surface_friction: false
+
+  # ---------------------------------------------------------------------------
+  # Phase 1.3 — Desired-force randomisation
+  # Pool of desired normal contact forces [N] sampled each episode.
+  # Comment out (or set to null) to keep f_desired fixed at
+  # hybrid_controller.F_desired_contact.
+  # ---------------------------------------------------------------------------
+  f_desired_choices: [-5.0, -8.0, -12.0, -15.0]
+
+# ==============================================================================
+# ControllerConfig
+# Contains controller-level parameters AND scene geometry.
+# The scene geometry fields (size_z, circle_center, circle_radius) are used by
+# MujocoRobotInterface to build the physical slope in simulation, and also
+# serve as defaults for the trajectory so the motion aligns with the slope.
+# ==============================================================================
+controller:
+  # -- Scene geometry ---------------------------------------------------------
+  # Physical slope in MuJoCo simulation.
+  size_z:    0.0001                     # Slope thickness [m]
+  slope_pos: [0.5038, 0.0108, 0.0857]  # Slope body position in world frame [m]
+
+  # -- Surface orientation ----------------------------------------------------
+  # Used by HybridController to build constraint-frame selection matrices,
+  # and by build_trajectory to compute R_slope for surface trajectories.
+  euler: [0.0, 0.0, 0.0]   # Surface orientation (roll, pitch, yaw) [rad]
+
+  # -- Controller parameters --------------------------------------------------
+  dt:                   0.001   # Timestep [s] (plotting only)
+  gravity_compensation: true
+
+  # How long the trajectory runs [s].  Set large to run continuously.
+  motion_duration: 5.0
+
+  # Distance threshold for is_target_reached() [m].
+  position_tolerance: 0.01
+
+  use_table: false
+
+# ==============================================================================
+# HybridControllerConfig
+# Force-impedance controller gains.
+# Kp, Kd, and Kd_null are derived automatically and are absent from this file.
+# ==============================================================================
+hybrid_controller:
+  Kpos:          0.95
+  Kori:          0.95
+  damping_ratio: 1.0
+
+  impedance_pos: [100.0, 100.0, 100.0]   # Translational stiffness [N/m]
+  impedance_ori: [50.0,  50.0,  50.0]    # Rotational stiffness [Nm/rad]
+  Kp_null:       [75.0, 75.0, 50.0, 50.0, 40.0, 25.0, 25.0]
+
+  Kp_force: 0.4
+  Kd_force: 0.002
+  Ki_force: 0.4
+
+  F_desired_contact: [-8.0]   # Desired normal force [N]; negative = push into surface
+  max_delta_tau:     1.0      # Max torque change per timestep [Nm]
+
+# ==============================================================================
+# Evaluation
+# Parameters used by ppo_friction_compensation/run_ppo_eval.py.
+# robot_type is read from training.robot_type, f_desired from
+# hybrid_controller.F_desired_contact, and motion_duration from
+# controller.motion_duration.  Trajectory is read from the trajectory section.
+# ==============================================================================
+evaluation:
+  # Path to the PPO checkpoint prefix (no file extension).
+  # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
+  # and <checkpoint>_normalizer.npz.
+  checkpoint: "experiments_random_traj/run_20260426_232324/checkpoints/final"
+
+  # Directory where evaluation plots are saved.
+  out_dir: "ppo_eval_plots"
+
+  # Launch the interactive MuJoCo viewer.  Set false for headless evaluation.
+  viewer: false
+
+  # Baseline mode: run the hybrid controller without PPO torque corrections.
+  no_ppo: false
+
+  # Surface friction coefficient used during evaluation.
+  # Sets the sliding friction of the contact surface (attachment_collision
+  # geom, first friction parameter).  Range [0.3, 1.0]; default 1.0 matches
+  # the XML default.  Override with --surface-friction on the CLI.
+  surface_friction: 1.0
+
+# ==============================================================================
+# Trajectory
+# Trajectory-specific parameters only.  size_z is read automatically from
+# the controller section above.  All position parameters (start_pos, center,
+# end_pos) must be set explicitly here.
+#
+# Only fill in the block matching the active type; the others are ignored.
+
+# ==============================================================================
+trajectory:
+  # Active type for *fixed* (non-randomised) runs.
+  # When randomize_trajectory: true this section is ignored during training.
+
+
+  # -- Sinusoidal --------------------------------------------------------------
+  # Back-and-forth along a surface-plane axis.  direction_angle selects the
+  # axis: 0 = x, π/2 = y, π/4 = diagonal.
+  # type: "sinusoidal"
+  # start_pos:       [0.5038, 0.0108, 0.0857]
+  # amplitude:       0.04    # Half-amplitude [m]
+  # frequency:       2.0     # Oscillation frequency [Hz]
+  # direction_angle: 0.0     # Axis angle in surface plane [rad]
+
+  # # -- Circle ------------------------------------------------------------------
+  type: "circle"
+  center:        [0.5038, 0.0108, 0.0857]
+  radius:        0.1           # [m]
+  angular_speed: 6.28     # [rad/s]  (tangential speed = radius × angular_speed)
+
+  # -- Line (minimum-jerk) ----------------------------------------------------
+  # type: "line"
+  # start_pos: [0.5038, 0.0108, 0.0857]
+  # end_pos:   [0.5538, 0.0108, 0.0857]
+  # duration:  5.0                          # [s]
+
+  # -- Lissajous (figure-8 and related) ----------------------------------------
+  # Ratio 1:2 → figure-8;  1:1 → circle;  2:3 → complex shape.
+  # type: "lissajous"
+  # center:       [0.5038, 0.0108, 0.0857]
+  # x_amplitude:  0.04     # [m]
+  # y_amplitude:  0.04     # [m]
+  # base_freq:    0.5      # Base frequency [Hz]
+  # freq_ratio_x: 1        # Integer multiplier for x
+  # freq_ratio_y: 2        # Integer multiplier for y
+  # phase:        1.5708   # Phase offset of x [rad]  (π/2 ≈ 1.5708)
+
+  # -- Ramp-and-hold -----------------------------------------------------------
+  # Move to a point (minimum-jerk), hold 2 s, move back, hold 2 s, repeat.
+  # type: "ramp_hold"
+  # start_pos:     [0.5038, 0.0108, 0.0857]
+  # end_pos:       [0.5538, 0.0108, 0.0857]
+  # move_duration: 3.0    # [s] per one-way move
+  # hold_duration: 2.0    # [s] dwell at each waypoint
