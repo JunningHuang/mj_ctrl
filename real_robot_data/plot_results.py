@@ -72,11 +72,11 @@ def load_run(npz_path: str) -> dict:
     else:
         out["force_desired"] = None
 
-    # force error
-    if "force_error" in d and d["force_error"].size > 0:        # baseline key
+    # force error — always derived from 1 kHz contact_forces so both formats
+    # share the same time axis when plotted together.
+    # The PPO "force_errors" key is 50 Hz (PPO cadence) and is kept separately.
+    if "force_error" in d and d["force_error"].size > 0:        # baseline 1 kHz key
         out["force_error"] = d["force_error"]
-    elif "force_errors" in d and d["force_errors"].size > 0:    # ppo_hybrid key
-        out["force_error"] = d["force_errors"]
     elif out["force_actual"] is not None and out["force_desired"] is not None:
         fa = out["force_actual"]
         fd = out["force_desired"]
@@ -84,6 +84,12 @@ def load_run(npz_path: str) -> dict:
         out["force_error"] = fd[:n] - fa[:n]
     else:
         out["force_error"] = None
+
+    # PPO-cadence force error kept separately (50 Hz, not used for comparison plots)
+    if "force_errors" in d and d["force_errors"].size > 0:
+        out["force_error_ppo_cadence"] = d["force_errors"]
+    else:
+        out["force_error_ppo_cadence"] = None
 
     # ---------- position tracking ----------
     for actual_key in ("actual_positions", "ee_positions"):
