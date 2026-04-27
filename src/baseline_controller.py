@@ -164,13 +164,13 @@ class BaselineController:
         # Trajectory
         # ------------------------------------------------------------------
         if self.trajectory is not None:
-            self.target_pos, self.x_dot_desired, self.x_ddot_desired = self.trajectory(elapsed)
-            # print(f"[BASELINE] Trajectory target_pos: {self.target_pos}, x_dot_desired: {self.x_dot_desired}, x_ddot_desired: {self.x_ddot_desired}")
-            if elapsed >= self.common_config.motion_duration:
+            self.target_pos, self.x_dot_desired, self.x_ddot_desired, S_f, _S_v, target_rot, traj_done = self.trajectory.step(elapsed, current_pos, current_mat)
+            if traj_done:
                 self.x_dot_desired[:] = 0.0
                 self.x_ddot_desired[:] = 0.0
                 self.is_drawing = False
                 return pino.computeGeneralizedGravity(self.pino_model, self.pino_data, q)
+            self.force_normal = S_f[:3,0]
             target_rot = self.target_rot
         else:
             target_rot = self.target_rot
