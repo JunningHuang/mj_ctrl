@@ -292,8 +292,6 @@ def main() -> None:
     log_delta_taus:   list = []
     
     # Full-rate data logs (recorded at 1 kHz if save-data enabled)
-    log_ee_positions:     list = []
-    log_target_positions: list = []
     log_contact_forces:   list = []
     log_desired_forces:   list = []
 
@@ -417,14 +415,8 @@ def main() -> None:
                     
                     # -- Full-rate data logging (if save-data enabled) -----------
                     if args.save_data and args.data_dir:
-                        # EE position and target position from hybrid controller
-                        if hasattr(hybrid_controller, 'ee_pos') and hasattr(hybrid_controller, 'target_pos'):
-                            log_ee_positions.append(hybrid_controller.ee_pos.copy())
-                            log_target_positions.append(hybrid_controller.target_pos.copy())
-                        
-                        # Contact forces from robot state
                         f6 = np.asarray(robot_state.O_F_ext_hat_K, dtype=np.float64)
-                        log_contact_forces.append(f6[:3].copy())  # Only linear forces, not torques
+                        log_contact_forces.append(f6[:3].copy())
                         log_desired_forces.append(f_desired)
                     
                     _log_cycle += 1
@@ -487,12 +479,12 @@ def main() -> None:
                     shutil.copy(args.config, config_dest)
                     print(f"[MAIN] Config saved to: {config_dest}")
                 
-                # Prepare arrays
-                ee_positions     = np.array(log_ee_positions) if log_ee_positions else np.empty((0, 3))
-                target_positions = np.array(log_target_positions) if log_target_positions else np.empty((0, 3))
+                # Prepare arrays — positions come from the controller's own accumulated lists
+                ee_positions     = np.array(hybrid_controller.ee_positions)     if hybrid_controller.ee_positions     else np.empty((0, 3))
+                target_positions = np.array(hybrid_controller.target_positions) if hybrid_controller.target_positions else np.empty((0, 3))
                 contact_forces   = np.array(log_contact_forces) if log_contact_forces else np.empty((0, 3))
                 desired_forces   = np.array(log_desired_forces) if log_desired_forces else np.empty((0,))
-                
+
                 # Compute errors if data available
                 if ee_positions.size > 0 and target_positions.size > 0 and ee_positions.shape == target_positions.shape:
                     pos_error_full = np.linalg.norm(ee_positions - target_positions, axis=1)
