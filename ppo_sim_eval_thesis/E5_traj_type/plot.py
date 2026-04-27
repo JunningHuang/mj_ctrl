@@ -1,5 +1,5 @@
 """
-E5 plot — Per-trajectory-type: grouped bar chart.
+E5 plot — Per-trajectory-type: grouped bar chart with HFDC + models B/C/D.
 
 Run from repo root:
     python -m ppo_sim_eval_thesis.E5_traj_type.plot
@@ -26,16 +26,23 @@ plt.rcParams.update({
     "ytick.labelsize": 8,
 })
 
-from ppo_sim_eval_thesis.common import COLOR_HFDC, COLOR_PPO, LABEL_HFDC, LABEL_PPO
-
 RES_DIR  = os.path.join(os.path.dirname(__file__), "results")
 PLOT_DIR = os.path.join(os.path.dirname(__file__), "plots")
 
-_LABELS = {
+_TRAJ_LABELS = {
     "circle":     "Circle",
     "sinusoidal": "Sinusoidal",
     "lissajous":  "Lissajous",
     "ramp_hold":  "Ramp-Hold",
+}
+
+# Condition display order and colours
+_COND_ORDER  = ["hfdc", "ppo_B", "ppo_C", "ppo_D"]
+_COND_COLORS = {
+    "hfdc":  "tab:blue",
+    "ppo_B": "tab:orange",
+    "ppo_C": "tab:green",
+    "ppo_D": "tab:red",
 }
 
 
@@ -47,27 +54,31 @@ def main():
     meta    = data["metadata"]
     results = data["results"]
     types   = meta["traj_types"]
-    x_labels = [_LABELS.get(t, t) for t in types]
+    conds   = meta["conditions"]          # {cond: {checkpoint, label}}
 
-    m_hfdc = [results["hfdc"][t]["mean"] for t in types]
-    s_hfdc = [results["hfdc"][t]["std"]  for t in types]
-    m_ppo  = [results["hfdc_ppo"][t]["mean"] for t in types]
-    s_ppo  = [results["hfdc_ppo"][t]["std"]  for t in types]
+    x_labels  = [_TRAJ_LABELS.get(t, t) for t in types]
+    n_conds   = len(_COND_ORDER)
+    n_types   = len(types)
+    width     = 0.18
+    offsets   = np.linspace(-(n_conds - 1) / 2, (n_conds - 1) / 2, n_conds) * width
+    x         = np.arange(n_types)
 
-    x     = np.arange(len(types))
-    width = 0.35
+    # Scale height for 4-bar groups
+    fig, ax = plt.subplots(figsize=(3.25, 2.5))
 
-    fig, ax = plt.subplots(figsize=(3.25, 2))
-    ax.bar(x - width/2, m_hfdc, width, yerr=s_hfdc, label=LABEL_HFDC,
-           color=COLOR_HFDC, capsize=3, error_kw={"lw": 0.8})
-    ax.bar(x + width/2, m_ppo,  width, yerr=s_ppo,  label=LABEL_PPO,
-           color=COLOR_PPO,  capsize=3, error_kw={"lw": 0.8})
+    for offset, cond in zip(offsets, _COND_ORDER):
+        label  = conds[cond]["label"]
+        color  = _COND_COLORS[cond]
+        means  = [results[cond][t]["mean"] for t in types]
+        stds   = [results[cond][t]["std"]  for t in types]
+        ax.bar(x + offset, means, width, yerr=stds, label=label,
+               color=color, capsize=2, error_kw={"lw": 0.7})
 
     ax.set_xticks(x)
     ax.set_xticklabels(x_labels, rotation=15, ha="right")
     ax.set_xlabel("Trajectory type")
     ax.set_ylabel(r"Mean $|e_F|$ [N]")
-    ax.legend(fontsize=7)
+    ax.legend(fontsize=6, loc="upper right")
 
     os.makedirs(PLOT_DIR, exist_ok=True)
     out = os.path.join(PLOT_DIR, "E5_traj_type.svg")

@@ -64,6 +64,8 @@ R_SLOPE   = euler_to_rot_matrix(EULER)
 # ---------------------------------------------------------------------------
 CHECKPOINT_A = "experiments/run_20260306_114434/checkpoints/final"
 CHECKPOINT_B = "experiments_random_traj/run_20260427_020537/checkpoints/final"
+CHECKPOINT_C = "experiments_random_traj/run_20260426_232324/checkpoints/final"
+CHECKPOINT_D = "experiments_random_traj/random_trajectory_and_surface_friction/checkpoints/final"
 
 # Null-space seed (pre-solved IK for slope centre)
 _NULL_Q0 = np.array([0.18703, 0.603541, -0.132999, -2.291796, 0.181594, 2.840875, 0.6684])
