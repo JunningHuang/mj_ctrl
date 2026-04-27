@@ -58,7 +58,7 @@ def main():
                 f"{m:.2f}", ha="center", va="bottom", fontsize=6)
 
     os.makedirs(PLOT_DIR, exist_ok=True)
-    out = os.path.join(PLOT_DIR, "E7_cross_policy.svg")
+    out = os.path.join(PLOT_DIR, "E7_cross_policy.png")
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"[E7] Saved → {out}")
     plt.close(fig)

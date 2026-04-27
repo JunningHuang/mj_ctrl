@@ -71,7 +71,7 @@ def main():
     ax.legend(fontsize=7, loc="upper left")
 
     os.makedirs(PLOT_DIR, exist_ok=True)
-    out = os.path.join(PLOT_DIR, "E1_friction_sweep.svg")
+    out = os.path.join(PLOT_DIR, "E1_friction_sweep.png")
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"[E1] Saved → {out}")
     plt.close(fig)
