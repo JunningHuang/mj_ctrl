@@ -66,7 +66,7 @@ def main():
     ax.legend(fontsize=7)
 
     os.makedirs(PLOT_DIR, exist_ok=True)
-    out = os.path.join(PLOT_DIR, "E6_friction_generalization.pdf")
+    out = os.path.join(PLOT_DIR, "E6_friction_generalization.svg")
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"[E6] Saved → {out}")
     plt.close(fig)

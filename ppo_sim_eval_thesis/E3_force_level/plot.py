@@ -64,7 +64,7 @@ def main():
     ax.legend(fontsize=7)
 
     os.makedirs(PLOT_DIR, exist_ok=True)
-    out = os.path.join(PLOT_DIR, "E3_force_level.pdf")
+    out = os.path.join(PLOT_DIR, "E3_force_level.svg")
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"[E3] Saved → {out}")
     plt.close(fig)
