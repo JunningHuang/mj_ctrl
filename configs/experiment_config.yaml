@@ -12,19 +12,19 @@
 # ==============================================================================
 
 # Optional human-readable label.  If null, a timestamped name is generated.
-experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
+experiment_name: random_trajectory_and_surface_friction   # e.g. "fr3_sinusoidal_seed0"
 
 # ==============================================================================
 # Weights & Biases logging (optional)
 # Set project to enable wandb; leave null to disable.
 # ==============================================================================
-# wandb:
-#   project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
-#   entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
-
 wandb:
-  project: null    # e.g. "ppo-friction-compensation"
-  entity:  null    # e.g. "your-username-or-team" (null = your default entity)
+  project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
+  entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
+
+# wandb:
+#   project: null    # e.g. "ppo-friction-compensation"
+#   entity:  null    # e.g. "your-username-or-team" (null = your default entity)
 
 # Root directory under which the experiment folder is created.
 experiments_base_dir: "experiments_random_traj"
@@ -35,8 +35,8 @@ experiments_base_dir: "experiments_random_traj"
 training:
   robot_type:       "fr3"   # "fr3" | "kuka" | "panda"
   seed:             0
-  epochs:           150
-  steps_per_epoch:  2000
+  epochs:           200
+  steps_per_epoch:  4000
   gamma:            0.99    # Discount factor
   lam:              0.97    # GAE lambda
   clip_ratio:       0.2     # PPO clipping epsilon
@@ -45,7 +45,7 @@ training:
   train_pi_iters:   80      # Actor gradient steps per epoch
   train_v_iters:    80      # Critic gradient steps per epoch
   target_kl:        0.01    # Early-stop KL threshold
-  save_every:       20      # Save checkpoint every N epochs
+  save_every:       50      # Save checkpoint every N epochs
 
   # ---------------------------------------------------------------------------
   # Parallel rollout collection
@@ -78,7 +78,7 @@ training:
   #   randomize_trajectory: true,  randomize_surface_friction: true
   #       → random trajectory type/params AND random surface friction
   # ---------------------------------------------------------------------------
-  randomize_surface_friction: false
+  randomize_surface_friction: true
 
   # ---------------------------------------------------------------------------
   # Phase 1.3 — Desired-force randomisation
@@ -150,7 +150,7 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments_random_traj/run_20260426_232324/checkpoints/final"
+  checkpoint: "experiments_random_traj/run_20260427_020537/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
@@ -184,17 +184,17 @@ trajectory:
   # -- Sinusoidal --------------------------------------------------------------
   # Back-and-forth along a surface-plane axis.  direction_angle selects the
   # axis: 0 = x, π/2 = y, π/4 = diagonal.
-  type: "sinusoidal"
-  start_pos:       [0.5038, 0.0108, 0.0857]
-  amplitude:       0.04    # Half-amplitude [m]
-  frequency:       2.0     # Oscillation frequency [Hz]
-  direction_angle: 0.0     # Axis angle in surface plane [rad]
+  # type: "sinusoidal"
+  # start_pos:       [0.5038, 0.0108, 0.0857]
+  # amplitude:       0.04    # Half-amplitude [m]
+  # frequency:       2.0     # Oscillation frequency [Hz]
+  # direction_angle: 0.0     # Axis angle in surface plane [rad]
 
   # # -- Circle ------------------------------------------------------------------
-  # type: "circle"
-  # center:        [0.5038, 0.0108, 0.0857]
-  # radius:        0.1           # [m]
-  # angular_speed: 6.28     # [rad/s]  (tangential speed = radius × angular_speed)
+  type: "circle"
+  center:        [0.5038, 0.0108, 0.0857]
+  radius:        0.1           # [m]
+  angular_speed: 6.28     # [rad/s]  (tangential speed = radius × angular_speed)
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
