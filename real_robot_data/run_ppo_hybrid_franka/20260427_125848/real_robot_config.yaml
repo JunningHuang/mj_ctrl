@@ -98,16 +98,16 @@ trajectory:
   
 
   # -- Sinusoidal (default) ----------------------------------------------------
-  # type: "sinusoidal"
-  # start_pos: [0.4961, 0.0038, 0.0524]   # Starting position [m]
-  # amplitude: 0.04    # Half-amplitude [m]
-  # frequency: 1  # [Hz]
+  type: "sinusoidal"
+  start_pos: [0.4961, 0.0038, 0.0524]   # Starting position [m]
+  amplitude: 0.04    # Half-amplitude [m]
+  frequency: 2   # [Hz]
 
   # -- Circle ------------------------------------------------------------------
-  type: "circle"
-  center:        [0.4961, 0.0038, 0.0524]   # Center position [m]
-  radius:        0.05                        # [m]
-  angular_speed: 3.0              # [rad/s]
+  # type: "circle"
+  # center:        [0.4961, 0.0038, 0.0524]   # Center position [m]
+  # radius:        0.05                        # [m]
+  # angular_speed: 3.0              # [rad/s]
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"

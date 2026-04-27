@@ -34,7 +34,7 @@ def main() -> None:
     )
     parser.add_argument("--ip", type=str, default="localhost", help="Robot IP address")
     parser.add_argument(
-        "--circle-duration", type=float, default=10.0,
+        "--circle-duration", type=float, default=5.0,
         help="Duration of circle motion in seconds (default: 10.0)"
     )
     parser.add_argument(
@@ -42,7 +42,7 @@ def main() -> None:
         help="Angular speed for circle in rad/s (default: pi*2)"
     )
     parser.add_argument(
-        "--force-desired", type=float, default=-8.0, dest="force_desired",
+        "--force-desired", type=float, default=-10.0, dest="force_desired",
         help="Desired contact force magnitude in N, negative = pressing (default: -8.0)"
     )
     parser.add_argument(

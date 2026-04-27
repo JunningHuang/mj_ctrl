@@ -353,7 +353,7 @@ class HybridController:
         velocity_term              =  Mx_constraint @ (J_phi @ M_inv @ C - J_phi_dot) @ dq
         F_ctrl_constraint = (
             self.config.F_desired_contact
-            # + control_force_compensation
+            + control_force_compensation
             # + contact_force_compensation
             + velocity_term
         )
