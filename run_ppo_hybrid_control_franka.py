@@ -325,6 +325,11 @@ def main() -> None:
         # =====================================================================
         # 5. Create hybrid controller
         # =====================================================================
+        # Disable the controller's internal rate limiter so the combined
+        # (hybrid + PPO) torque is rate-limited once, not twice.
+        max_delta_tau = hybrid_config.max_delta_tau
+        hybrid_config.max_delta_tau = float("inf")
+
         hybrid_controller = HybridController(
             hybrid_config,
             common_config,
@@ -401,10 +406,9 @@ def main() -> None:
                     tau = tau_hybrid + delta_tau
                     # -- Torque rate limiting ---------------------------------
                     last_command_tau = np.array(robot_state.tau_J_d)
-                    delta_tau_rate   = np.clip(tau - last_command_tau,
-                                               -hybrid_config.max_delta_tau,
-                                                hybrid_config.max_delta_tau)
-                    tau              = last_command_tau + delta_tau_rate
+                    tau              = last_command_tau + np.clip(
+                                           tau - last_command_tau,
+                                           -max_delta_tau, max_delta_tau)
                     # -- Logging at PPO cadence --------------------------------
                     if _log_cycle % args.action_repeat == 0:
                         f6 = np.asarray(robot_state.O_F_ext_hat_K, dtype=np.float64)
