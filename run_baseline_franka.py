@@ -58,7 +58,7 @@ def main() -> None:
         help="Integral gain for PI force control (overrides config default)"
     )
     parser.add_argument(
-        "--slope-angle", type=float, default=30.0,
+        "--slope-angle", type=float, default=0.0,
         help="Slope angle in degrees around X axis (default: 30.0)"
     )
     parser.add_argument(

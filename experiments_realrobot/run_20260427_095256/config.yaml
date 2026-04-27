@@ -107,7 +107,7 @@ trajectory:
   type: "circle"
   center:        [0.4961, 0.0038, 0.0524]   # Center position [m]
   radius:        0.05                        # [m]
-  angular_speed: 9.0              # [rad/s]
+  angular_speed: 6.0              # [rad/s]
 
   # -- Line (minimum-jerk) ----------------------------------------------------
   # type: "line"
