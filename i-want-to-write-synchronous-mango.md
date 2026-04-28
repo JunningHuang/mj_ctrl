@@ -6,6 +6,11 @@ Chapter 4 established that HFDC achieves strong force tracking but surface frict
 
 **Scope clarification (important):** Both PPO training runs use `fr3_no_joint_friction.xml` — joint friction is absent during training. The PPO targets surface friction compensation only. Joint friction interaction is a separate question that must be explicitly flagged.
 
+A	experiments/run_20260306_114434	Sinusoidal (fixed, dir=0°)	μ ~ U[0.3,1.0]	Section 1 main result
+B	experiments_random_traj/run_20260427_020537	Circle only (r∈[0.08,0.12]m, ω∈[π,2π]rad/s)	μ=1.0 fixed	Section 2 main result
+C	experiments_random_traj/run_20260426_232324	Circle + Sinusoidal	μ ~ U[0.3,1.0] (randomised)	
+D     experiments_random_traj\random_trajectory_and_surface_friction  with all type trajectory
+
 ---
 
 ## Chapter Structure
