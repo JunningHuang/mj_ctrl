@@ -382,7 +382,8 @@ def main() -> None:
     # ----------------------------------------------------------------
     # null_q0: pre-solved IK for the circle center (slope_pos), null-space reference.
     # q0:      IK for the trajectory's t=0 position (physical start, no position jump).
-    null_q0 = np.array([0.18703, 0.603541, -0.132999, -2.291796, 0.181594, 2.840875, 0.6684])
+    # null_q0 = np.array([0.18703, 0.603541, -0.132999, -2.291796, 0.181594, 2.840875, 0.6684]) (0.0857m slope_pos)
+    null_q0 = np.array([0.183734, 0.695778, -0.127351, -2.241034, 0.179504, 2.845183, 0.6684])
     _traj_start_pos, _, _ = trajectory(0.0)
     q0 = solve_ik(_traj_start_pos, null_q0, pino_model, pino_data, pino_frame_id)
 
