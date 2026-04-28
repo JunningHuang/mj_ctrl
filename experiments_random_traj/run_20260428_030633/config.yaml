@@ -18,13 +18,13 @@ experiment_name: null   # e.g. "fr3_sinusoidal_seed0"
 # Weights & Biases logging (optional)
 # Set project to enable wandb; leave null to disable.
 # ==============================================================================
-# wandb:
-#   project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
-#   entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
-
 wandb:
-  project: null    # e.g. "ppo-friction-compensation"
-  entity:  null    # e.g. "your-username-or-team" (null = your default entity)
+  project: "hybrid_motion_control_ppo"    # e.g. "ppo-friction-compensation"
+  entity:  "hybrid_motion_control"    # e.g. "your-username-or-team" (null = your default entity)
+
+# wandb:
+#   project: null    # e.g. "ppo-friction-compensation"
+#   entity:  null    # e.g. "your-username-or-team" (null = your default entity)
 
 # Root directory under which the experiment folder is created.
 experiments_base_dir: "experiments_random_traj"
@@ -150,16 +150,16 @@ evaluation:
   # Path to the PPO checkpoint prefix (no file extension).
   # The script will load <checkpoint>_actor.pt, <checkpoint>_critic.pt,
   # and <checkpoint>_normalizer.npz.
-  checkpoint: "experiments_random_traj/run_20260428_030633/checkpoints/final"
+  checkpoint: "experiments_random_traj/run_20260426_212046/checkpoints/final"
 
   # Directory where evaluation plots are saved.
   out_dir: "ppo_eval_plots"
 
   # Launch the interactive MuJoCo viewer.  Set false for headless evaluation.
-  viewer: true
+  viewer: false
 
   # Baseline mode: run the hybrid controller without PPO torque corrections.
-  no_ppo: false
+  no_ppo: true
 
   # Surface friction coefficient used during evaluation.
   # Sets the sliding friction of the contact surface (attachment_collision
@@ -192,8 +192,8 @@ trajectory:
 
   # # -- Circle ------------------------------------------------------------------
   type: "circle"
-  center:        [0.5038, 0.0108, 0.0524]
-  radius:        0.1           # [m]
+  center:        [0.5038, 0.0108, 0.0857]
+  radius:        0.01           # [m]
   angular_speed: 6.28     # [rad/s]  (tangential speed = radius × angular_speed)
 
   # -- Line (minimum-jerk) ----------------------------------------------------
