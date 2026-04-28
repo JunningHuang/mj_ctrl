@@ -88,6 +88,17 @@ training:
   # ---------------------------------------------------------------------------
   f_desired_choices: [-5.0, -8.0, -12.0, -15.0]
 
+  # ---------------------------------------------------------------------------
+  # Trajectory type filter
+  # Set false to exclude a type from the random sampling pool.
+  # Omit this section entirely to use all four types.
+  # ---------------------------------------------------------------------------
+  traj_types:
+    circle:    true
+    lissajous: false
+    sinusoidal: true
+    ramp_hold: false
+
 # ==============================================================================
 # ControllerConfig
 # Contains controller-level parameters AND scene geometry.

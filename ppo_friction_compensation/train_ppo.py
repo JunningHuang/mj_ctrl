@@ -96,6 +96,8 @@ def train(
     f_desired_choices:    "list | None" = None,
     # Surface friction randomisation
     randomize_surface_friction: bool  = False,
+    # Trajectory type filter (None = all types)
+    traj_types:      "tuple | None"  = None,
     # Parallel rollout collection
     num_workers:     int   = 1,
     # Weights & Biases
@@ -194,6 +196,7 @@ def train(
         randomize_trajectory        = randomize_trajectory,
         f_desired_choices           = f_desired_choices,
         randomize_surface_friction  = randomize_surface_friction,
+        traj_types                  = traj_types,
     )
 
     # ---- Agent + buffer -----------------------------------------------------
@@ -503,6 +506,13 @@ if __name__ == "__main__":
         wandb_project = args.wandb_project or wandb_cfg.get("project") or None
         wandb_entity  = args.wandb_entity  or wandb_cfg.get("entity")  or None
 
+        # Parse traj_types: dict of {name: bool} → tuple of enabled names, or None = all
+        _raw_traj_types = training_cfg.get("traj_types", None)
+        _traj_types = (
+            tuple(k for k, v in _raw_traj_types.items() if v)
+            if _raw_traj_types is not None else None
+        )
+
         train(
             robot_type           = training_cfg.get("robot_type",           "fr3"),
             steps_per_epoch      = training_cfg.get("steps_per_epoch",      4000),
@@ -520,6 +530,7 @@ if __name__ == "__main__":
             randomize_trajectory        = training_cfg.get("randomize_trajectory",        True),
             f_desired_choices           = training_cfg.get("f_desired_choices",           None),
             randomize_surface_friction  = training_cfg.get("randomize_surface_friction",  False),
+            traj_types           = _traj_types,
             num_workers          = training_cfg.get("num_workers", args.num_workers),
             experiment_manager   = exp_manager,
             common_config        = common_config,

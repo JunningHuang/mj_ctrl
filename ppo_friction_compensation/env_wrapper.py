@@ -187,6 +187,7 @@ class HybridControlEnv:
         f_desired_choices: Optional[List[float]] = None,
         randomize_surface_friction: bool = False,
         max_delta_tau: Optional[float] = None,
+        traj_types: Optional[tuple] = None,
     ) -> None:
 
         self.action_repeat            = action_repeat
@@ -197,6 +198,7 @@ class HybridControlEnv:
         self.approach_contact_thresh  = approach_contact_thresh
         self.randomize_trajectory       = randomize_trajectory
         self.randomize_surface_friction = randomize_surface_friction
+        self._traj_types = tuple(traj_types) if traj_types is not None else _TRAJ_TYPES
         self._f_desired_choices         = (
             f_desired_choices if f_desired_choices is not None
             else [-5.0, -8.0, -12.0, -15.0]
@@ -462,7 +464,7 @@ class HybridControlEnv:
         R_slope   = euler_to_rot_matrix(self.common_config.euler)
         size_z    = self.common_config.size_z
 
-        traj_type = random.choice(_TRAJ_TYPES)
+        traj_type = random.choice(self._traj_types)
         self._traj_tag = traj_type
 
         if traj_type == "circle":
