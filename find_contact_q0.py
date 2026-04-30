@@ -73,7 +73,7 @@ if __name__ == "__main__":
     from src.robot_configs import get_robot_config
 
     ROBOT_TYPE = "fr3"
-    TARGET_POS = np.array([0.5038, 0.0108, 0.0857])
+    TARGET_POS = np.array([0.5038, 0.0108, 0.0524])  # Slope body position in world frame [m]
     Q0_INIT    = np.array([0.1807, 0.6659, -0.1337, -2.1748, 0.1788, 2.8604, 0.6684])
 
     robot_cfg = get_robot_config(ROBOT_TYPE)
