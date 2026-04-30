@@ -385,6 +385,8 @@ def main() -> None:
         # =====================================================================
         # 8. Real-time control loop  (1 kHz)
         # =====================================================================
+        run_start_time = time.time()
+
         try:
             while True:
                 robot_state, duration = active_control.readOnce()
@@ -508,6 +510,7 @@ def main() -> None:
                     force_errors=np.array(log_force_errors),
                     force_actual=np.array(log_force_actual),
                     delta_taus=np.array(log_delta_taus),
+                    timestamp=np.float64(run_start_time),
                 )
                 print(f"[MAIN] Data saved to: {fpath}")
 
