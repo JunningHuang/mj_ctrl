@@ -19,7 +19,7 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true" />
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" />
-  <body name="slope_body" pos="0.5038 0.0108 0.0857" euler="0.0 0.0 0.0">
+  <body name="slope_body" pos="0.5038 0.0108 0.0524" euler="0.0 0.0 0.0">
       <geom name="slope_geom" type="box" size="0.20 0.20 0.0001" rgba="0.8 0.2 0.2 0.5" contype="1" conaffinity="1" />
     </body></worldbody>
 </mujoco>
