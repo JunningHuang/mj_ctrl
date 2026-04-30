@@ -1,0 +1,15 @@
+condition,velocity_rad_s,type,avg_abs_force_error_N,avg_position_error_m
+nocc,9,ppo_hybrid,8.2657,0.00877
+control,9,ppo_hybrid,3.4918,0.00828
+contact,9,ppo_hybrid,8.7565,0.00866
+cc,9,ppo_hybrid,4.4954,0.00825
+baseline,9,baseline,2.399,0.00736
+nocc,6,ppo_hybrid,4.3062,0.01103
+control,6,ppo_hybrid,2.176,0.01094
+contact,6,ppo_hybrid,5.99,0.01133
+cc,6,ppo_hybrid,4.0563,0.01121
+baseline,6,baseline,1.782,0.01004
+nocc,3,ppo_hybrid,2.8978,0.01318
+control,3,ppo_hybrid,1.3321,0.0131
+cc,3,ppo_hybrid,4.0293,0.01304
+baseline,3,baseline,1.4372,0.01204
