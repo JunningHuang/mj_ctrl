@@ -8,6 +8,7 @@
 # Trajectory is a CircleTrajectory from src/trajectories.py.
 # ------------------------------------------------------------------------------
 import argparse
+import time
 from datetime import datetime
 import gc
 import numpy as np
@@ -230,6 +231,8 @@ def main() -> None:
         # 7. Control loop
         # ============================================================
         
+        run_start_time = time.time()
+
         try:
             while True:
                 robot_state, duration = active_control.readOnce()
@@ -362,6 +365,7 @@ def main() -> None:
                     desired_forces=desired_forces,
                     multiplier=np.array(args.multiplier),
                     angular_speed_rad_s=np.array(args.angular_speed),
+                    timestamp=np.float64(run_start_time),
                 )
                 print(f"DATA_SAVED: {fpath}")
 
