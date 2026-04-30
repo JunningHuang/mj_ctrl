@@ -45,7 +45,8 @@ def main() -> int:
         # default=[0.0221, 0.7644, -0.0304, -2.1874, -0.003, 2.9563, 0.7873], # wood without sensor 0.5205, -0.0059, 0.036
         # default=[0.1565, 0.5559, -0.1311, -2.3959, 0.0769, 2.9546, 0.7158], # cylinder top
         # default=[0.0074, 0.1221, -0.0136, -2.3581, 0.018, 2.4855, 0.7511], # on stuhl 0.51, -0.0032, 0.2777
-        default=[0.021, 0.6876, -0.0121, -2.2921, -0.0027, 2.9829, 0.7165], # on black board 0.4961, 0.0038, 0.0524
+        # default=[0.021, 0.6876, -0.0121, -2.2921, -0.0027, 2.9829, 0.7165], # on black board 0.4961, 0.0038, 0.0524
+        default=[0.0786, 0.6449, -0.0715, -2.2856, 0.0075, 2.9261, 0.6199], # on black board + sensor 0.5051, -0.0009, 0.0712]
         help="7 joint targets in rad (default: Franka start pose)",
     )
     parser.add_argument("--plot", action="store_true", help="Plot joint trajectories after motion")

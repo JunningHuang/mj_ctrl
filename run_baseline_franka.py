@@ -126,7 +126,7 @@ def main() -> None:
     if args.ki_force is not None:
         baseline_config.Ki_force = args.ki_force
 
-    q0 = np.array([0.021, 0.6876, -0.0121, -2.2921, -0.0027, 2.9829, 0.7165])
+    q0 = np.array([0.0786, 0.6449, -0.0715, -2.2856, 0.0075, 2.9261, 0.6199])
 
     R_slope = euler_to_rot_matrix(common_config.euler)
 

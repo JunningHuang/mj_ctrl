@@ -284,7 +284,7 @@ def main() -> None:
         print("[PPO] Evaluator ready.")
 
     # Real-robot q0 (calibrated for FR3 on physical setup)
-    q0 = np.array([0.021, 0.6876, -0.0121, -2.2921, -0.0027, 2.9829, 0.7165])
+    q0 = np.array([0.0786, 0.6449, -0.0715, -2.2856, 0.0075, 2.9261, 0.6199])
 
     # Data logs (recorded at PPO cadence, 50 Hz)
     log_force_errors: list = []

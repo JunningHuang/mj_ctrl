@@ -46,7 +46,7 @@ controller:
   # -- Scene geometry ---------------------------------------------------------
   # Physical slope in MuJoCo simulation.
   size_z:    0.0001                     # Slope thickness [m]
-  slope_pos: [0.4961, 0.0038, 0.0524]  # Slope body position in world frame [m]
+  slope_pos: [0.5051, -0.0009, 0.0712]  # Slope body position in world frame [m]
 
   # -- Surface orientation ----------------------------------------------------
   # Used by HybridController to build constraint-frame selection matrices,
@@ -99,13 +99,13 @@ trajectory:
 
   # -- Sinusoidal (default) ----------------------------------------------------
   type: "sinusoidal"
-  start_pos: [0.4961, 0.0038, 0.0524]   # Starting position [m]
+  start_pos: [0.5051, -0.0009, 0.0712]   # Starting position [m]
   amplitude: 0.04    # Half-amplitude [m]
   frequency: 2  # [Hz]
 
   # -- Circle ------------------------------------------------------------------
   # type: "circle"
-  # center:        [0.4961, 0.0038, 0.0524]   # Center position [m]
+  # center:        [0.5051, -0.0009, 0.0712]   # Center position [m]
   # radius:        0.05                        # [m]
   # angular_speed: 9.0              # [rad/s]
 
@@ -116,4 +116,4 @@ trajectory:
   # duration:  5.0                          # [s]
 
   # type: "fixed_point"
-  # fixed_pos: [0.4961, 0.0038, 0.0524]   # Uncomment to override default
+  # fixed_pos: [0.5051, -0.0009, 0.0712]   # Uncomment to override default
