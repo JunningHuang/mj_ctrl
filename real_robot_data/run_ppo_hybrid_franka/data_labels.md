@@ -23,3 +23,20 @@ cylinder
 cylinder_experiments\20260427_143646_1.57  vel: 1.57 angular speed - a
 cylinder_experiments\20260427_143822_0.628 vel: 0.628 - b
 real_robot_data\run_baseline_franka_cylinder\20260427_143317 (forget what speed it is)
+
+baseline vs noppo vs ppo
+circle angular vel 3
+pylibfranka/mj_ctrl/real_robot_data/run_baseline_franka/20260430_105018 - baseline
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_103618 - noppo
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_104655 - ppo
+
+circle angular vel 6
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_105322 -- ppo
+
+circle angular vel 9
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_110056 -- ppo
+
+sin
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_110056 -- ppo
+pylibfranka/mj_ctrl/real_robot_data/run_ppo_hybrid_franka/20260430_110422 - no-ppo
+pylibfranka/mj_ctrl/real_robot_data/run_baseline_franka/20260430_110517 -- baseline
